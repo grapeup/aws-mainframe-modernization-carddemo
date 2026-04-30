@@ -1,4 +1,4 @@
-      ******************************************************************        
+******************************************************************        
       * Program     : COBIL00C.CBL
       * Application : CardDemo
       * Type        : CICS COBOL Program
@@ -40,6 +40,7 @@
          05 WS-TRANSACT-FILE           PIC X(08) VALUE 'TRANSACT'.
          05 WS-ACCTDAT-FILE            PIC X(08) VALUE 'ACCTDAT '.
          05 WS-CXACAIX-FILE            PIC X(08) VALUE 'CXACAIX '.
+         05 WS-TRAN-COUNTER-FILE       PIC X(08) VALUE 'TRANCTR '.
          05 WS-ERR-FLG                 PIC X(01) VALUE 'N'.
            88 ERR-FLG-ON                         VALUE 'Y'.
            88 ERR-FLG-OFF                        VALUE 'N'.
@@ -59,6 +60,13 @@
          05 WS-ABS-TIME                PIC S9(15) COMP-3 VALUE 0.
          05 WS-CUR-DATE-X10            PIC X(10) VALUE SPACES.
          05 WS-CUR-TIME-X08            PIC X(08) VALUE SPACES.
+         05 WS-PAYMENT-LIMIT           PIC S9(11)V99 COMP-3 
+                                       VALUE +50000.00.
+         05 WS-REREAD-BAL              PIC S9(11)V99 COMP-3.
+
+       01 WS-COUNTER-RECORD.
+         05 WS-COUNTER-KEY             PIC X(08) VALUE 'TRANSEQ '.
+         05 WS-COUNTER-VALUE           PIC 9(16) VALUE ZEROS.
 
        COPY COCOM01Y.
           05 CDEMO-CB00-INFO.
@@ -205,21 +213,41 @@
                END-IF
            END-IF
 
+      *    Check account status before payment
+           IF NOT ERR-FLG-ON
+               IF ACCT-ACTIVE-STATUS NOT = 'Y'
+                   MOVE 'Y'     TO WS-ERR-FLG
+                   MOVE 'Account is not active. Payment not allowed.'
+                                TO WS-MESSAGE
+                   MOVE -1       TO ACTIDINL OF COBIL0AI
+                   PERFORM SEND-BILLPAY-SCREEN
+               END-IF
+           END-IF
+
+      *    Check transaction limit
+           IF NOT ERR-FLG-ON
+               IF ACCT-CURR-BAL > WS-PAYMENT-LIMIT
+                   MOVE 'Y'     TO WS-ERR-FLG
+                   STRING 'Payment amount exceeds limit of $'
+                          DELIMITED BY SIZE
+                          WS-PAYMENT-LIMIT DELIMITED BY SIZE
+                          '. Contact support.' DELIMITED BY SIZE
+                          INTO WS-MESSAGE
+                   MOVE -1       TO ACTIDINL OF COBIL0AI
+                   PERFORM SEND-BILLPAY-SCREEN
+               END-IF
+           END-IF
+
            IF NOT ERR-FLG-ON
 
                IF CONF-PAY-YES
                    PERFORM READ-CXACAIX-FILE
-                   MOVE HIGH-VALUES TO TRAN-ID
-                   PERFORM STARTBR-TRANSACT-FILE
-                   PERFORM READPREV-TRANSACT-FILE
-                   PERFORM ENDBR-TRANSACT-FILE
-                   MOVE TRAN-ID     TO WS-TRAN-ID-NUM
-                   ADD 1 TO WS-TRAN-ID-NUM
+                   PERFORM GET-NEXT-TRAN-ID
                    INITIALIZE TRAN-RECORD
                    MOVE WS-TRAN-ID-NUM       TO TRAN-ID
                    MOVE '02'                 TO TRAN-TYPE-CD
                    MOVE 2                    TO TRAN-CAT-CD
-                   MOVE 'POS TERM'           TO TRAN-SOURCE
+                   MOVE 'ONLINE'             TO TRAN-SOURCE
                    MOVE 'BILL PAYMENT - ONLINE' TO TRAN-DESC
                    MOVE ACCT-CURR-BAL        TO TRAN-AMT
                    MOVE XREF-CARD-NUM        TO TRAN-CARD-NUM
@@ -230,9 +258,7 @@
                    PERFORM GET-CURRENT-TIMESTAMP
                    MOVE WS-TIMESTAMP         TO TRAN-ORIG-TS
                                                 TRAN-PROC-TS
-                   PERFORM WRITE-TRANSACT-FILE
-                   COMPUTE ACCT-CURR-BAL = ACCT-CURR-BAL - TRAN-AMT
-                   PERFORM UPDATE-ACCTDAT-FILE
+                   PERFORM PROCESS-PAYMENT-ATOMIC
                ELSE
                    MOVE 'Confirm to make a bill payment...' TO
                                    WS-MESSAGE
@@ -242,6 +268,107 @@
                PERFORM SEND-BILLPAY-SCREEN
 
            END-IF.
+
+      *----------------------------------------------------------------*
+      *                      PROCESS-PAYMENT-ATOMIC
+      *----------------------------------------------------------------*
+       PROCESS-PAYMENT-ATOMIC.
+      *    Atomic payment processing with SYNCPOINT
+      *    Re-read account with UPDATE lock and validate balance
+           PERFORM REREAD-ACCTDAT-FOR-UPDATE
+
+           IF NOT ERR-FLG-ON
+               MOVE ACCT-CURR-BAL TO WS-REREAD-BAL
+               IF WS-REREAD-BAL <= ZEROS
+                   MOVE 'Y'     TO WS-ERR-FLG
+                   MOVE 'Balance changed. Payment not processed.' TO
+                                   WS-MESSAGE
+                   MOVE -1       TO ACTIDINL OF COBIL0AI
+                   EXEC CICS SYNCPOINT ROLLBACK END-EXEC
+               ELSE
+                   IF WS-REREAD-BAL NOT = TRAN-AMT
+                       MOVE WS-REREAD-BAL TO TRAN-AMT
+                   END-IF
+                   PERFORM WRITE-TRANSACT-FILE
+                   IF NOT ERR-FLG-ON
+                       COMPUTE ACCT-CURR-BAL = 
+                               ACCT-CURR-BAL - TRAN-AMT
+                       PERFORM UPDATE-ACCTDAT-FILE
+                       IF NOT ERR-FLG-ON
+                           EXEC CICS SYNCPOINT END-EXEC
+                       ELSE
+                           EXEC CICS SYNCPOINT ROLLBACK END-EXEC
+                       END-IF
+                   ELSE
+                       EXEC CICS SYNCPOINT ROLLBACK END-EXEC
+                   END-IF
+               END-IF
+           END-IF
+           .
+
+      *----------------------------------------------------------------*
+      *                      GET-NEXT-TRAN-ID
+      *----------------------------------------------------------------*
+       GET-NEXT-TRAN-ID.
+      *    Use locked counter record to generate unique transaction ID
+           EXEC CICS READ
+                DATASET   (WS-TRAN-COUNTER-FILE)
+                INTO      (WS-COUNTER-RECORD)
+                LENGTH    (LENGTH OF WS-COUNTER-RECORD)
+                RIDFLD    (WS-COUNTER-KEY)
+                KEYLENGTH (LENGTH OF WS-COUNTER-KEY)
+                UPDATE
+                RESP      (WS-RESP-CD)
+                RESP2     (WS-REAS-CD)
+           END-EXEC
+
+           EVALUATE WS-RESP-CD
+               WHEN DFHRESP(NORMAL)
+                   ADD 1 TO WS-COUNTER-VALUE
+                   MOVE WS-COUNTER-VALUE TO WS-TRAN-ID-NUM
+                   EXEC CICS REWRITE
+                        DATASET   (WS-TRAN-COUNTER-FILE)
+                        FROM      (WS-COUNTER-RECORD)
+                        LENGTH    (LENGTH OF WS-COUNTER-RECORD)
+                        RESP      (WS-RESP-CD)
+                        RESP2     (WS-REAS-CD)
+                   END-EXEC
+                   IF WS-RESP-CD NOT = DFHRESP(NORMAL)
+                       MOVE 'Y'     TO WS-ERR-FLG
+                       MOVE 'Unable to update transaction counter...'
+                                    TO WS-MESSAGE
+                       MOVE -1       TO ACTIDINL OF COBIL0AI
+                       PERFORM SEND-BILLPAY-SCREEN
+                   END-IF
+               WHEN DFHRESP(NOTFND)
+      *            Initialize counter if not found
+                   MOVE 1 TO WS-COUNTER-VALUE
+                   MOVE WS-COUNTER-VALUE TO WS-TRAN-ID-NUM
+                   EXEC CICS WRITE
+                        DATASET   (WS-TRAN-COUNTER-FILE)
+                        FROM      (WS-COUNTER-RECORD)
+                        LENGTH    (LENGTH OF WS-COUNTER-RECORD)
+                        RIDFLD    (WS-COUNTER-KEY)
+                        KEYLENGTH (LENGTH OF WS-COUNTER-KEY)
+                        RESP      (WS-RESP-CD)
+                        RESP2     (WS-REAS-CD)
+                   END-EXEC
+                   IF WS-RESP-CD NOT = DFHRESP(NORMAL)
+                       MOVE 'Y'     TO WS-ERR-FLG
+                       MOVE 'Unable to initialize transaction counter'
+                                    TO WS-MESSAGE
+                       MOVE -1       TO ACTIDINL OF COBIL0AI
+                       PERFORM SEND-BILLPAY-SCREEN
+                   END-IF
+               WHEN OTHER
+                   DISPLAY 'RESP:' WS-RESP-CD 'REAS:' WS-REAS-CD
+                   MOVE 'Y'     TO WS-ERR-FLG
+                   MOVE 'Unable to read transaction counter...' TO
+                                   WS-MESSAGE
+                   MOVE -1       TO ACTIDINL OF COBIL0AI
+                   PERFORM SEND-BILLPAY-SCREEN
+           END-EVALUATE
+           .
 
       *----------------------------------------------------------------*
       *                      GET-CURRENT-TIMESTAMP
@@ -348,7 +475,6 @@
                 LENGTH    (LENGTH OF ACCOUNT-RECORD)
                 RIDFLD    (ACCT-ID)
                 KEYLENGTH (LENGTH OF ACCT-ID)
-                UPDATE
                 RESP      (WS-RESP-CD)
                 RESP2     (WS-REAS-CD)
            END-EXEC
@@ -370,6 +496,41 @@
                    MOVE -1       TO ACTIDINL OF COBIL0AI
                    PERFORM SEND-BILLPAY-SCREEN
            END-EVALUATE.
+
+      *----------------------------------------------------------------*
+      *                      REREAD-ACCTDAT-FOR-UPDATE
+      *----------------------------------------------------------------*
+       REREAD-ACCTDAT-FOR-UPDATE.
+      *    Re-read account with UPDATE lock within payment transaction
+           EXEC CICS READ
+                DATASET   (WS-ACCTDAT-FILE)
+                INTO      (ACCOUNT-RECORD)
+                LENGTH    (LENGTH OF ACCOUNT-RECORD)
+                RIDFLD    (ACCT-ID)
+                KEYLENGTH (LENGTH OF ACCT-ID)
+                UPDATE
+                RESP      (WS-RESP-CD)
+                RESP2     (WS-REAS-CD)
+           END-EXEC
+
+           EVALUATE WS-RESP-CD
+               WHEN DFHRESP(NORMAL)
+                   CONTINUE
+               WHEN DFHRESP(NOTFND)
+                   MOVE 'Y'     TO WS-ERR-FLG
+                   MOVE 'Account ID NOT found...' TO
+                                   WS-MESSAGE
+                   MOVE -1       TO ACTIDINL OF COBIL0AI
+                   PERFORM SEND-BILLPAY-SCREEN
+               WHEN OTHER
+                   DISPLAY 'RESP:' WS-RESP-CD 'REAS:' WS-REAS-CD
+                   MOVE 'Y'     TO WS-ERR-FLG
+                   MOVE 'Unable to lock Account for update...' TO
+                                   WS-MESSAGE
+                   MOVE -1       TO ACTIDINL OF COBIL0AI
+                   PERFORM SEND-BILLPAY-SCREEN
+           END-EVALUATE
+           .
 
       *----------------------------------------------------------------*
       *                      UPDATE-ACCTDAT-FILE
@@ -436,75 +597,6 @@
            END-EVALUATE.
 
       *----------------------------------------------------------------*
-      *                      STARTBR-TRANSACT-FILE
-      *----------------------------------------------------------------*
-       STARTBR-TRANSACT-FILE.
-
-           EXEC CICS STARTBR
-                DATASET   (WS-TRANSACT-FILE)
-                RIDFLD    (TRAN-ID)
-                KEYLENGTH (LENGTH OF TRAN-ID)
-                RESP      (WS-RESP-CD)
-                RESP2     (WS-REAS-CD)
-           END-EXEC
-
-           EVALUATE WS-RESP-CD
-               WHEN DFHRESP(NORMAL)
-                   CONTINUE
-               WHEN DFHRESP(NOTFND)
-                   MOVE 'Y'     TO WS-ERR-FLG
-                   MOVE 'Transaction ID NOT found...' TO
-                                   WS-MESSAGE
-                   MOVE -1       TO ACTIDINL OF COBIL0AI
-                   PERFORM SEND-BILLPAY-SCREEN
-               WHEN OTHER
-                   DISPLAY 'RESP:' WS-RESP-CD 'REAS:' WS-REAS-CD
-                   MOVE 'Y'     TO WS-ERR-FLG
-                   MOVE 'Unable to lookup Transaction...' TO
-                                   WS-MESSAGE
-                   MOVE -1       TO ACTIDINL OF COBIL0AI
-                   PERFORM SEND-BILLPAY-SCREEN
-           END-EVALUATE.
-
-      *----------------------------------------------------------------*
-      *                      READPREV-TRANSACT-FILE
-      *----------------------------------------------------------------*
-       READPREV-TRANSACT-FILE.
-
-           EXEC CICS READPREV
-                DATASET   (WS-TRANSACT-FILE)
-                INTO      (TRAN-RECORD)
-                LENGTH    (LENGTH OF TRAN-RECORD)
-                RIDFLD    (TRAN-ID)
-                KEYLENGTH (LENGTH OF TRAN-ID)
-                RESP      (WS-RESP-CD)
-                RESP2     (WS-REAS-CD)
-           END-EXEC
-
-           EVALUATE WS-RESP-CD
-               WHEN DFHRESP(NORMAL)
-                   CONTINUE
-               WHEN DFHRESP(ENDFILE)
-                   MOVE ZEROS TO TRAN-ID
-               WHEN OTHER
-                   DISPLAY 'RESP:' WS-RESP-CD 'REAS:' WS-REAS-CD
-                   MOVE 'Y'     TO WS-ERR-FLG
-                   MOVE 'Unable to lookup Transaction...' TO
-                                   WS-MESSAGE
-                   MOVE -1       TO ACTIDINL OF COBIL0AI
-                   PERFORM SEND-BILLPAY-SCREEN
-           END-EVALUATE.
-
-      *----------------------------------------------------------------*
-      *                      ENDBR-TRANSACT-FILE
-      *----------------------------------------------------------------*
-       ENDBR-TRANSACT-FILE.
-
-           EXEC CICS ENDBR
-                DATASET   (WS-TRANSACT-FILE)
-           END-EXEC.
-
-      *----------------------------------------------------------------*
       *                      WRITE-TRANSACT-FILE
       *----------------------------------------------------------------*
        WRITE-TRANSACT-FILE.
@@ -521,15 +613,7 @@
 
            EVALUATE WS-RESP-CD
                WHEN DFHRESP(NORMAL)
-                   PERFORM INITIALIZE-ALL-FIELDS
-                   MOVE SPACES             TO WS-MESSAGE
-                   MOVE DFHGREEN           TO ERRMSGC  OF COBIL0AO
-                   STRING 'Payment successful. '     DELIMITED BY SIZE
-                     ' Your Transaction ID is ' DELIMITED BY SIZE
-                          TRAN-ID  DELIMITED BY SPACE
-                          '.' DELIMITED BY SIZE
-                     INTO WS-MESSAGE
-                   PERFORM SEND-BILLPAY-SCREEN
+                   CONTINUE
                WHEN DFHRESP(DUPKEY)
                WHEN DFHRESP(DUPREC)
                    MOVE 'Y'     TO WS-ERR-FLG
@@ -544,7 +628,19 @@
                                    WS-MESSAGE
                    MOVE -1       TO ACTIDINL OF COBIL0AI
                    PERFORM SEND-BILLPAY-SCREEN
-           END-EVALUATE.
+           END-EVALUATE
+           
+           IF NOT ERR-FLG-ON
+               PERFORM INITIALIZE-ALL-FIELDS
+               MOVE SPACES             TO WS-MESSAGE
+               MOVE DFHGREEN           TO ERRMSGC  OF COBIL0AO
+               STRING 'Payment successful. '     DELIMITED BY SIZE
+                 ' Your Transaction ID is ' DELIMITED BY SIZE
+                      TRAN-ID  DELIMITED BY SPACE
+                      '.' DELIMITED BY SIZE
+                 INTO WS-MESSAGE
+           END-IF
+           .
 
       *----------------------------------------------------------------*
       *                      CLEAR-CURRENT-SCREEN
@@ -570,3 +666,17 @@
       *
       * Ver: CardDemo_v1.0-15-g27d6c6f-68 Date: 2022-07-19 23:12:32 CDT
       *
+      ******************************************************************
+      * INFRASTRUCTURE REQUIREMENT:
+      * This program requires a VSAM KSDS file named TRANCTR with:
+      *   - Key: 8-byte character field (WS-COUNTER-KEY)
+      *   - Record length: 24 bytes (WS-COUNTER-RECORD)
+      * Define via:
+      *   DEFINE CLUSTER (NAME(TRANCTR) -
+      *          KEYS(8 0) -
+      *          RECORDSIZE(24 24) -
+      *          INDEXED) -
+      *   DATA (NAME(TRANCTR.DATA)) -
+      *   INDEX (NAME(TRANCTR.INDEX))
+      * Add to CICS FCT as TRANCTR
+      ******************************************************************

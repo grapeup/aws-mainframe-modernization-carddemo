@@ -1,4 +1,4 @@
-      ******************************************************************        
+******************************************************************        
       * Program     : COUSR01C.CBL
       * Application : CardDemo
       * Type        : CICS COBOL Program
@@ -143,6 +143,13 @@
                    MOVE 'Y'     TO WS-ERR-FLG
                    MOVE 'User Type can NOT be empty...' TO
                                    WS-MESSAGE
+                   MOVE -1       TO USRTYPEL OF COUSR1AI
+                   PERFORM SEND-USRADD-SCREEN
+               WHEN USRTYPEI OF COUSR1AI NOT = 'A' AND
+                    USRTYPEI OF COUSR1AI NOT = 'U'
+                   MOVE 'Y'     TO WS-ERR-FLG
+                   MOVE 'User Type must be A (Admin) or U (User)...'
+                                   TO WS-MESSAGE
                    MOVE -1       TO USRTYPEL OF COUSR1AI
                    PERFORM SEND-USRADD-SCREEN
                WHEN OTHER

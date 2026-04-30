@@ -1,4 +1,4 @@
-      ******************************************************************
+******************************************************************
       * Program     : CBTRN01C.CBL                                      
       * Application : CardDemo                                          
       * Type        : BATCH COBOL Program                                
@@ -150,6 +150,11 @@
            05 WS-XREF-READ-STATUS  PIC 9(04).
            05 WS-ACCT-READ-STATUS  PIC 9(04).
 
+       01  WS-MASKED-CARD-NUM      PIC X(16).
+       01  WS-TRANS-COUNT          PIC 9(09) VALUE 0.
+       01  WS-TRANS-PROCESSED      PIC 9(09) VALUE 0.
+       01  WS-TRANS-SKIPPED        PIC 9(09) VALUE 0.
+
       *****************************************************************
        PROCEDURE DIVISION.
        MAIN-PARA.
@@ -165,7 +170,8 @@
                IF  END-OF-DAILY-TRANS-FILE = 'N'
                    PERFORM 1000-DALYTRAN-GET-NEXT
                    IF  END-OF-DAILY-TRANS-FILE = 'N'
-                       DISPLAY DALYTRAN-RECORD
+                       ADD 1 TO WS-TRANS-COUNT
+                       DISPLAY 'PROCESSING TRANSACTION ' WS-TRANS-COUNT
                    END-IF
                    MOVE 0                 TO WS-XREF-READ-STATUS
                    MOVE DALYTRAN-CARD-NUM TO XREF-CARD-NUM
@@ -174,13 +180,19 @@
                      MOVE 0            TO WS-ACCT-READ-STATUS
                      MOVE XREF-ACCT-ID TO ACCT-ID
                      PERFORM 3000-READ-ACCOUNT
-                     IF WS-ACCT-READ-STATUS NOT = 0
-                         DISPLAY 'ACCOUNT ' ACCT-ID ' NOT FOUND'
+                     IF WS-ACCT-READ-STATUS = 0
+                         PERFORM 4000-WRITE-TRANSACTION
+                         ADD 1 TO WS-TRANS-PROCESSED
+                     ELSE
+                         DISPLAY 'ACCOUNT NOT FOUND - SKIPPING'
+                         ADD 1 TO WS-TRANS-SKIPPED
                      END-IF
                    ELSE
-                     DISPLAY 'CARD NUMBER ' DALYTRAN-CARD-NUM
+                     PERFORM 5000-MASK-CARD-NUMBER
+                     DISPLAY 'CARD NUMBER ' WS-MASKED-CARD-NUM
                      ' COULD NOT BE VERIFIED. SKIPPING TRANSACTION ID-'
                      DALYTRAN-ID
+                     ADD 1 TO WS-TRANS-SKIPPED
                    END-IF
                END-IF
            END-PERFORM.
@@ -193,6 +205,9 @@
            PERFORM 9500-TRANFILE-CLOSE.
 
            DISPLAY 'END OF EXECUTION OF PROGRAM CBTRN01C'.
+           DISPLAY 'TOTAL TRANSACTIONS READ: ' WS-TRANS-COUNT.
+           DISPLAY 'TRANSACTIONS PROCESSED : ' WS-TRANS-PROCESSED.
+           DISPLAY 'TRANSACTIONS SKIPPED   : ' WS-TRANS-SKIPPED.
 
            GOBACK.
 
@@ -233,9 +248,6 @@
                   MOVE 4 TO WS-XREF-READ-STATUS
                 NOT INVALID KEY
                   DISPLAY 'SUCCESSFUL READ OF XREF'
-                  DISPLAY 'CARD NUMBER: ' XREF-CARD-NUM
-                  DISPLAY 'ACCOUNT ID : ' XREF-ACCT-ID
-                  DISPLAY 'CUSTOMER ID: ' XREF-CUST-ID
            END-READ.
       *---------------------------------------------------------------*
        3000-READ-ACCOUNT.
@@ -248,6 +260,24 @@
                 NOT INVALID KEY
                   DISPLAY 'SUCCESSFUL READ OF ACCOUNT FILE'
            END-READ.
+      *---------------------------------------------------------------*
+       4000-WRITE-TRANSACTION.
+      *    WRITE TRANSACTION RECORD TO TRANSACT-FILE
+           MOVE DALYTRAN-ID TO FD-TRANS-ID
+           MOVE DALYTRAN-RECORD TO FD-TRANFILE-REC
+           WRITE FD-TRANFILE-REC
+                INVALID KEY
+                  DISPLAY 'ERROR WRITING TRANSACTION - DUPLICATE KEY'
+                  ADD 1 TO WS-TRANS-SKIPPED
+                  SUBTRACT 1 FROM WS-TRANS-PROCESSED
+                NOT INVALID KEY
+                  CONTINUE
+           END-WRITE.
+      *---------------------------------------------------------------*
+       5000-MASK-CARD-NUMBER.
+      *    MASK CARD NUMBER - SHOW ONLY LAST 4 DIGITS (PCI DSS 3.4)
+           MOVE 'XXXXXXXXXXXX' TO WS-MASKED-CARD-NUM(1:12).
+           MOVE DALYTRAN-CARD-NUM(13:4) TO WS-MASKED-CARD-NUM(13:4).
       *---------------------------------------------------------------*
        0000-DALYTRAN-OPEN.
            MOVE 8 TO APPL-RESULT.
@@ -342,7 +372,7 @@
       *---------------------------------------------------------------*
        0500-TRANFILE-OPEN.
            MOVE 8 TO APPL-RESULT.
-           OPEN INPUT TRANSACT-FILE
+           OPEN OUTPUT TRANSACT-FILE
            IF  TRANFILE-STATUS = '00'
                MOVE 0 TO APPL-RESULT
            ELSE
@@ -369,8 +399,8 @@
            IF  APPL-AOK
                CONTINUE
            ELSE
-               DISPLAY 'ERROR CLOSING CUSTOMER FILE'
-               MOVE CUSTFILE-STATUS TO IO-STATUS
+               DISPLAY 'ERROR CLOSING DAILY TRANSACTION FILE'
+               MOVE DALYTRAN-STATUS TO IO-STATUS
                PERFORM Z-DISPLAY-IO-STATUS
                PERFORM Z-ABEND-PROGRAM
            END-IF

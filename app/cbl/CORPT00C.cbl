@@ -1,4 +1,4 @@
-      ******************************************************************        
+******************************************************************        
       * Program     : CORPT00C.CBL
       * Application : CardDemo
       * Type        : CICS COBOL Program
@@ -77,6 +77,13 @@
          05 WS-TRAN-AMT                PIC +99999999.99.
          05 WS-TRAN-DATE               PIC X(08) VALUE '00/00/00'.
          05 JCL-RECORD                 PIC X(80) VALUE ' '.
+
+      *----------------------------------------------------------------*
+      * SANITIZED DATE FIELDS - VALIDATED AND SAFE FOR JCL INJECTION  *
+      *----------------------------------------------------------------*
+       01 WS-SANITIZED-DATES.
+         05 WS-SAFE-START-DATE         PIC X(10) VALUE SPACES.
+         05 WS-SAFE-END-DATE           PIC X(10) VALUE SPACES.
 
        01 JOB-DATA.
         02 JOB-DATA-1.
@@ -217,8 +224,7 @@
                    MOVE WS-CURDATE-YEAR     TO WS-START-DATE-YYYY
                    MOVE WS-CURDATE-MONTH    TO WS-START-DATE-MM
                    MOVE '01'                TO WS-START-DATE-DD
-                   MOVE WS-START-DATE       TO PARM-START-DATE-1
-                                               PARM-START-DATE-2
+                   MOVE WS-START-DATE       TO WS-SAFE-START-DATE
 
                    MOVE 1              TO WS-CURDATE-DAY
                    ADD 1               TO WS-CURDATE-MONTH
@@ -232,8 +238,7 @@
                    MOVE WS-CURDATE-YEAR     TO WS-END-DATE-YYYY
                    MOVE WS-CURDATE-MONTH    TO WS-END-DATE-MM
                    MOVE WS-CURDATE-DAY      TO WS-END-DATE-DD
-                   MOVE WS-END-DATE         TO PARM-END-DATE-1
-                                               PARM-END-DATE-2
+                   MOVE WS-END-DATE         TO WS-SAFE-END-DATE
 
                    PERFORM SUBMIT-JOB-TO-INTRDR
                WHEN YEARLYI OF CORPT0AI NOT = SPACES AND LOW-VALUES
@@ -244,13 +249,11 @@
                                                WS-END-DATE-YYYY
                    MOVE '01'                TO WS-START-DATE-MM
                                                WS-START-DATE-DD
-                   MOVE WS-START-DATE       TO PARM-START-DATE-1
-                                               PARM-START-DATE-2
+                   MOVE WS-START-DATE       TO WS-SAFE-START-DATE
 
                    MOVE '12'                TO WS-END-DATE-MM
                    MOVE '31'                TO WS-END-DATE-DD
-                   MOVE WS-END-DATE         TO PARM-END-DATE-1
-                                               PARM-END-DATE-2
+                   MOVE WS-END-DATE         TO WS-SAFE-END-DATE
 
                    PERFORM SUBMIT-JOB-TO-INTRDR
                WHEN CUSTOMI OF CORPT0AI NOT = SPACES AND LOW-VALUES
@@ -425,11 +428,12 @@
                        END-IF
                    END-IF
 
+      *            SANITIZE DATES BEFORE EMBEDDING IN JCL
+                   PERFORM SANITIZE-DATE-FOR-JCL
+                       USING WS-START-DATE WS-SAFE-START-DATE
+                   PERFORM SANITIZE-DATE-FOR-JCL
+                       USING WS-END-DATE WS-SAFE-END-DATE
 
-                   MOVE WS-START-DATE       TO PARM-START-DATE-1
-                                               PARM-START-DATE-2
-                   MOVE WS-END-DATE         TO PARM-END-DATE-1
-                                               PARM-END-DATE-2
                    MOVE 'Custom'   TO WS-REPORT-NAME
                    IF NOT ERR-FLG-ON
                        PERFORM SUBMIT-JOB-TO-INTRDR
@@ -455,6 +459,33 @@
 
            END-IF.
 
+
+      *----------------------------------------------------------------*
+      *                      SANITIZE-DATE-FOR-JCL
+      *----------------------------------------------------------------*
+       SANITIZE-DATE-FOR-JCL SECTION.
+       USING WS-INPUT-DATE PIC X(10)
+             WS-OUTPUT-DATE PIC X(10).
+
+      *    WHITELIST: ONLY ALLOW YYYY-MM-DD FORMAT (DIGITS AND HYPHENS)
+      *    REJECT ANY SPECIAL CHARACTERS THAT COULD ENABLE JCL INJECTION
+           MOVE SPACES TO WS-OUTPUT-DATE
+
+           IF WS-INPUT-DATE(1:4) IS NUMERIC AND
+              WS-INPUT-DATE(5:1) = '-' AND
+              WS-INPUT-DATE(6:2) IS NUMERIC AND
+              WS-INPUT-DATE(8:1) = '-' AND
+              WS-INPUT-DATE(9:2) IS NUMERIC
+               MOVE WS-INPUT-DATE TO WS-OUTPUT-DATE
+           ELSE
+               MOVE 'Date format validation failed...'
+                 TO WS-MESSAGE
+               MOVE 'Y' TO WS-ERR-FLG
+               MOVE SPACES TO WS-OUTPUT-DATE
+           END-IF.
+
+       SANITIZE-DATE-FOR-JCL-EXIT.
+           EXIT SECTION.
 
       *----------------------------------------------------------------*
       *                      SUBMIT-JOB-TO-INTRDR
@@ -492,6 +523,12 @@
                        MOVE -1       TO CONFIRML OF CORPT0AI
                        PERFORM SEND-TRNRPT-SCREEN
                END-EVALUATE
+
+      *        USE SANITIZED DATES IN JCL PARAMETERS
+               MOVE WS-SAFE-START-DATE TO PARM-START-DATE-1
+                                          PARM-START-DATE-2
+               MOVE WS-SAFE-END-DATE   TO PARM-END-DATE-1
+                                          PARM-END-DATE-2
 
                SET END-LOOP-NO TO TRUE
 

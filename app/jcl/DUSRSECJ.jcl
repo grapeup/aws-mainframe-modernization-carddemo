@@ -28,20 +28,35 @@
 //*-------------------------------------------------------------------*
 //* CREATE USER SECURITY FILE (PS) FROM IN-STREAM DATA
 //*-------------------------------------------------------------------*
+//* SECURITY REMEDIATION:
+//* Hardcoded passwords removed. Passwords must be set via external
+//* security manager (RACF/ACF2/Top Secret) or secure credential store.
+//* Application must enforce password change on first login.
+//* 
+//* REQUIRED INFRASTRUCTURE CHANGES:
+//* 1. Integrate with ESM (RACF/ACF2/Top Secret) for credential mgmt
+//* 2. Modify application logic to:
+//*    - Accept initial credentials from secure source
+//*    - Set FORCE-PASSWORD-CHANGE flag for new accounts
+//*    - Validate password complexity requirements
+//* 3. Load user data from encrypted dataset or ESM-protected source
+//*
+//* TEMPORARY PLACEHOLDER DATA BELOW - NOT FOR PRODUCTION USE
+//*-------------------------------------------------------------------*
 //*
 //STEP01  EXEC PGM=IEBGENER
 //*
 //SYSUT1   DD *
-ADMIN001MARGARET            GOLD                PASSWORDA
-ADMIN002RUSSELL             RUSSELL             PASSWORDA
-ADMIN003RAYMOND             WHITMORE            PASSWORDA
-ADMIN004EMMANUEL            CASGRAIN            PASSWORDA
-ADMIN005GRANVILLE           LACHAPELLE          PASSWORDA
-USER0001LAWRENCE            THOMAS              PASSWORDU
-USER0002AJITH               KUMAR               PASSWORDU
-USER0003LAURITZ             ALME                PASSWORDU
-USER0004AVERARDO            MAZZI               PASSWORDU
-USER0005LEE                 TING                PASSWORDU
+ADMIN001MARGARET            GOLD                *EXPIRED*
+ADMIN002RUSSELL             RUSSELL             *EXPIRED*
+ADMIN003RAYMOND             WHITMORE            *EXPIRED*
+ADMIN004EMMANUEL            CASGRAIN            *EXPIRED*
+ADMIN005GRANVILLE           LACHAPELLE          *EXPIRED*
+USER0001LAWRENCE            THOMAS              *EXPIRED*
+USER0002AJITH               KUMAR               *EXPIRED*
+USER0003LAURITZ             ALME                *EXPIRED*
+USER0004AVERARDO            MAZZI               *EXPIRED*
+USER0005LEE                 TING                *EXPIRED*
 /*
 //SYSUT2   DD DSN=AWS.M2.CARDDEMO.USRSEC.PS,
 //            DISP=(NEW,CATLG,DELETE),

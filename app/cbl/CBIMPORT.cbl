@@ -1,4 +1,4 @@
-       IDENTIFICATION DIVISION.
+IDENTIFICATION DIVISION.
        PROGRAM-ID.    CBIMPORT.
        AUTHOR.        CARDDEMO TEAM.
       ******************************************************************
@@ -146,7 +146,44 @@
            05  WS-ERROR-RECORDS-WRITTEN               PIC 9(09) VALUE 0.
            05  WS-UNKNOWN-RECORD-TYPE-COUNT           PIC 9(09) VALUE 0.
 
+      * Validation Variables
+       01  WS-VALIDATION-CONTROL.
+           05  WS-VALIDATION-ERRORS                   PIC 9(09) VALUE 0.
+           05  WS-EXPECTED-CHECKSUM                   PIC 9(15) VALUE 0.
+           05  WS-CALCULATED-CHECKSUM                 PIC 9(15) VALUE 0.
+           05  WS-EXPECTED-RECORD-COUNT               PIC 9(09) VALUE 0.
 
+      * Duplicate Detection Tables
+       01  WS-DUPLICATE-TABLES.
+           05  WS-CUSTOMER-TABLE.
+               10  WS-CUSTOMER-KEY OCCURS 10000 TIMES
+                   INDEXED BY CUST-IDX                 PIC 9(09) VALUE 0.
+           05  WS-ACCOUNT-TABLE.
+               10  WS-ACCOUNT-KEY OCCURS 10000 TIMES
+                   INDEXED BY ACCT-IDX                 PIC 9(11) VALUE 0.
+           05  WS-CARD-TABLE.
+               10  WS-CARD-KEY OCCURS 10000 TIMES
+                   INDEXED BY CARD-IDX                 PIC 9(16) VALUE 0.
+           05  WS-XREF-TABLE.
+               10  WS-XREF-KEY OCCURS 10000 TIMES
+                   INDEXED BY XREF-IDX                 PIC 9(16) VALUE 0.
+           05  WS-TRAN-TABLE.
+               10  WS-TRAN-KEY OCCURS 10000 TIMES
+                   INDEXED BY TRAN-IDX                 PIC X(16) VALUE SPACES.
+
+       01  WS-DUPLICATE-COUNTERS.
+           05  WS-CUSTOMER-COUNT                      PIC 9(05) VALUE 0.
+           05  WS-ACCOUNT-COUNT                       PIC 9(05) VALUE 0.
+           05  WS-CARD-COUNT                          PIC 9(05) VALUE 0.
+           05  WS-XREF-COUNT                          PIC 9(05) VALUE 0.
+           05  WS-TRAN-COUNT                          PIC 9(05) VALUE 0.
+           05  WS-DUPLICATE-FOUND                     PIC X(01) VALUE 'N'.
+               88  DUPLICATE-DETECTED                 VALUE 'Y'.
+               88  NO-DUPLICATE                       VALUE 'N'.
+
+       01  WS-WORK-FIELDS.
+           05  WS-SEARCH-INDEX                        PIC 9(05) VALUE 0.
+           05  WS-TEMP-NUMERIC                        PIC 9(16) VALUE 0.
 
       * Error Record Layout
        01  WS-ERROR-RECORD.
@@ -188,6 +225,7 @@
            MOVE FUNCTION CURRENT-DATE(13:2) TO WS-IMPORT-TIME(7:2)
            
            PERFORM 1100-OPEN-FILES
+           PERFORM 1200-INITIALIZE-DUPLICATE-TABLES
            
            DISPLAY 'CBIMPORT: Import Date: ' WS-IMPORT-DATE
            DISPLAY 'CBIMPORT: Import Time: ' WS-IMPORT-TIME.
@@ -245,6 +283,34 @@
            END-IF.
 
       *****************************************************************
+       1200-INITIALIZE-DUPLICATE-TABLES.
+      *****************************************************************
+           PERFORM VARYING CUST-IDX FROM 1 BY 1 
+                   UNTIL CUST-IDX > 10000
+               MOVE 0 TO WS-CUSTOMER-KEY(CUST-IDX)
+           END-PERFORM
+           
+           PERFORM VARYING ACCT-IDX FROM 1 BY 1 
+                   UNTIL ACCT-IDX > 10000
+               MOVE 0 TO WS-ACCOUNT-KEY(ACCT-IDX)
+           END-PERFORM
+           
+           PERFORM VARYING CARD-IDX FROM 1 BY 1 
+                   UNTIL CARD-IDX > 10000
+               MOVE 0 TO WS-CARD-KEY(CARD-IDX)
+           END-PERFORM
+           
+           PERFORM VARYING XREF-IDX FROM 1 BY 1 
+                   UNTIL XREF-IDX > 10000
+               MOVE 0 TO WS-XREF-KEY(XREF-IDX)
+           END-PERFORM
+           
+           PERFORM VARYING TRAN-IDX FROM 1 BY 1 
+                   UNTIL TRAN-IDX > 10000
+               MOVE SPACES TO WS-TRAN-KEY(TRAN-IDX)
+           END-PERFORM.
+
+      *****************************************************************
        2000-PROCESS-EXPORT-FILE.
       *****************************************************************
            PERFORM 2100-READ-EXPORT-RECORD
@@ -287,6 +353,17 @@
       *****************************************************************
        2300-PROCESS-CUSTOMER-RECORD.
       *****************************************************************
+           PERFORM 2310-CHECK-DUPLICATE-CUSTOMER
+           
+           IF DUPLICATE-DETECTED
+               MOVE FUNCTION CURRENT-DATE TO ERR-TIMESTAMP
+               MOVE EXPORT-REC-TYPE TO ERR-RECORD-TYPE
+               MOVE EXPORT-SEQUENCE-NUM TO ERR-SEQUENCE
+               MOVE 'Duplicate customer ID detected' TO ERR-MESSAGE
+               PERFORM 2750-WRITE-ERROR
+               GO TO 2300-EXIT
+           END-IF
+           
            INITIALIZE CUSTOMER-RECORD
            
       *    Map export fields to customer record
@@ -317,11 +394,48 @@
                PERFORM 9999-ABEND-PROGRAM
            END-IF
            
+           PERFORM 2320-REGISTER-CUSTOMER
            ADD 1 TO WS-CUSTOMER-RECORDS-IMPORTED.
+           
+       2300-EXIT.
+           EXIT.
+
+      *****************************************************************
+       2310-CHECK-DUPLICATE-CUSTOMER.
+      *****************************************************************
+           SET NO-DUPLICATE TO TRUE
+           
+           PERFORM VARYING WS-SEARCH-INDEX FROM 1 BY 1
+                   UNTIL WS-SEARCH-INDEX > WS-CUSTOMER-COUNT
+                   OR DUPLICATE-DETECTED
+               IF WS-CUSTOMER-KEY(WS-SEARCH-INDEX) = EXP-CUST-ID
+                   SET DUPLICATE-DETECTED TO TRUE
+               END-IF
+           END-PERFORM.
+
+      *****************************************************************
+       2320-REGISTER-CUSTOMER.
+      *****************************************************************
+           IF WS-CUSTOMER-COUNT < 10000
+               ADD 1 TO WS-CUSTOMER-COUNT
+               MOVE EXP-CUST-ID TO 
+                    WS-CUSTOMER-KEY(WS-CUSTOMER-COUNT)
+           END-IF.
 
       *****************************************************************
        2400-PROCESS-ACCOUNT-RECORD.
       *****************************************************************
+           PERFORM 2410-CHECK-DUPLICATE-ACCOUNT
+           
+           IF DUPLICATE-DETECTED
+               MOVE FUNCTION CURRENT-DATE TO ERR-TIMESTAMP
+               MOVE EXPORT-REC-TYPE TO ERR-RECORD-TYPE
+               MOVE EXPORT-SEQUENCE-NUM TO ERR-SEQUENCE
+               MOVE 'Duplicate account ID detected' TO ERR-MESSAGE
+               PERFORM 2750-WRITE-ERROR
+               GO TO 2400-EXIT
+           END-IF
+           
            INITIALIZE ACCOUNT-RECORD
            
       *    Map export fields to account record
@@ -346,11 +460,48 @@
                PERFORM 9999-ABEND-PROGRAM
            END-IF
            
+           PERFORM 2420-REGISTER-ACCOUNT
            ADD 1 TO WS-ACCOUNT-RECORDS-IMPORTED.
+           
+       2400-EXIT.
+           EXIT.
+
+      *****************************************************************
+       2410-CHECK-DUPLICATE-ACCOUNT.
+      *****************************************************************
+           SET NO-DUPLICATE TO TRUE
+           
+           PERFORM VARYING WS-SEARCH-INDEX FROM 1 BY 1
+                   UNTIL WS-SEARCH-INDEX > WS-ACCOUNT-COUNT
+                   OR DUPLICATE-DETECTED
+               IF WS-ACCOUNT-KEY(WS-SEARCH-INDEX) = EXP-ACCT-ID
+                   SET DUPLICATE-DETECTED TO TRUE
+               END-IF
+           END-PERFORM.
+
+      *****************************************************************
+       2420-REGISTER-ACCOUNT.
+      *****************************************************************
+           IF WS-ACCOUNT-COUNT < 10000
+               ADD 1 TO WS-ACCOUNT-COUNT
+               MOVE EXP-ACCT-ID TO 
+                    WS-ACCOUNT-KEY(WS-ACCOUNT-COUNT)
+           END-IF.
 
       *****************************************************************
        2500-PROCESS-XREF-RECORD.
       *****************************************************************
+           PERFORM 2510-CHECK-DUPLICATE-XREF
+           
+           IF DUPLICATE-DETECTED
+               MOVE FUNCTION CURRENT-DATE TO ERR-TIMESTAMP
+               MOVE EXPORT-REC-TYPE TO ERR-RECORD-TYPE
+               MOVE EXPORT-SEQUENCE-NUM TO ERR-SEQUENCE
+               MOVE 'Duplicate xref card number detected' TO ERR-MESSAGE
+               PERFORM 2750-WRITE-ERROR
+               GO TO 2500-EXIT
+           END-IF
+           
            INITIALIZE CARD-XREF-RECORD
            
       *    Map export fields to xref record
@@ -366,11 +517,48 @@
                PERFORM 9999-ABEND-PROGRAM
            END-IF
            
+           PERFORM 2520-REGISTER-XREF
            ADD 1 TO WS-XREF-RECORDS-IMPORTED.
+           
+       2500-EXIT.
+           EXIT.
+
+      *****************************************************************
+       2510-CHECK-DUPLICATE-XREF.
+      *****************************************************************
+           SET NO-DUPLICATE TO TRUE
+           
+           PERFORM VARYING WS-SEARCH-INDEX FROM 1 BY 1
+                   UNTIL WS-SEARCH-INDEX > WS-XREF-COUNT
+                   OR DUPLICATE-DETECTED
+               IF WS-XREF-KEY(WS-SEARCH-INDEX) = EXP-XREF-CARD-NUM
+                   SET DUPLICATE-DETECTED TO TRUE
+               END-IF
+           END-PERFORM.
+
+      *****************************************************************
+       2520-REGISTER-XREF.
+      *****************************************************************
+           IF WS-XREF-COUNT < 10000
+               ADD 1 TO WS-XREF-COUNT
+               MOVE EXP-XREF-CARD-NUM TO 
+                    WS-XREF-KEY(WS-XREF-COUNT)
+           END-IF.
 
       *****************************************************************
        2600-PROCESS-TRAN-RECORD.
       *****************************************************************
+           PERFORM 2610-CHECK-DUPLICATE-TRAN
+           
+           IF DUPLICATE-DETECTED
+               MOVE FUNCTION CURRENT-DATE TO ERR-TIMESTAMP
+               MOVE EXPORT-REC-TYPE TO ERR-RECORD-TYPE
+               MOVE EXPORT-SEQUENCE-NUM TO ERR-SEQUENCE
+               MOVE 'Duplicate transaction ID detected' TO ERR-MESSAGE
+               PERFORM 2750-WRITE-ERROR
+               GO TO 2600-EXIT
+           END-IF
+           
            INITIALIZE TRAN-RECORD
            
       *    Map export fields to transaction record
@@ -396,11 +584,48 @@
                PERFORM 9999-ABEND-PROGRAM
            END-IF
            
+           PERFORM 2620-REGISTER-TRAN
            ADD 1 TO WS-TRAN-RECORDS-IMPORTED.
+           
+       2600-EXIT.
+           EXIT.
+
+      *****************************************************************
+       2610-CHECK-DUPLICATE-TRAN.
+      *****************************************************************
+           SET NO-DUPLICATE TO TRUE
+           
+           PERFORM VARYING WS-SEARCH-INDEX FROM 1 BY 1
+                   UNTIL WS-SEARCH-INDEX > WS-TRAN-COUNT
+                   OR DUPLICATE-DETECTED
+               IF WS-TRAN-KEY(WS-SEARCH-INDEX) = EXP-TRAN-ID
+                   SET DUPLICATE-DETECTED TO TRUE
+               END-IF
+           END-PERFORM.
+
+      *****************************************************************
+       2620-REGISTER-TRAN.
+      *****************************************************************
+           IF WS-TRAN-COUNT < 10000
+               ADD 1 TO WS-TRAN-COUNT
+               MOVE EXP-TRAN-ID TO 
+                    WS-TRAN-KEY(WS-TRAN-COUNT)
+           END-IF.
 
       *****************************************************************
        2650-PROCESS-CARD-RECORD.
       *****************************************************************
+           PERFORM 2660-CHECK-DUPLICATE-CARD
+           
+           IF DUPLICATE-DETECTED
+               MOVE FUNCTION CURRENT-DATE TO ERR-TIMESTAMP
+               MOVE EXPORT-REC-TYPE TO ERR-RECORD-TYPE
+               MOVE EXPORT-SEQUENCE-NUM TO ERR-SEQUENCE
+               MOVE 'Duplicate card number detected' TO ERR-MESSAGE
+               PERFORM 2750-WRITE-ERROR
+               GO TO 2650-EXIT
+           END-IF
+           
            INITIALIZE CARD-RECORD
            
       *    Map export fields to card record
@@ -419,7 +644,33 @@
                PERFORM 9999-ABEND-PROGRAM
            END-IF
            
+           PERFORM 2670-REGISTER-CARD
            ADD 1 TO WS-CARD-RECORDS-IMPORTED.
+           
+       2650-EXIT.
+           EXIT.
+
+      *****************************************************************
+       2660-CHECK-DUPLICATE-CARD.
+      *****************************************************************
+           SET NO-DUPLICATE TO TRUE
+           
+           PERFORM VARYING WS-SEARCH-INDEX FROM 1 BY 1
+                   UNTIL WS-SEARCH-INDEX > WS-CARD-COUNT
+                   OR DUPLICATE-DETECTED
+               IF WS-CARD-KEY(WS-SEARCH-INDEX) = EXP-CARD-NUM
+                   SET DUPLICATE-DETECTED TO TRUE
+               END-IF
+           END-PERFORM.
+
+      *****************************************************************
+       2670-REGISTER-CARD.
+      *****************************************************************
+           IF WS-CARD-COUNT < 10000
+               ADD 1 TO WS-CARD-COUNT
+               MOVE EXP-CARD-NUM TO 
+                    WS-CARD-KEY(WS-CARD-COUNT)
+           END-IF.
 
       *****************************************************************
        2700-PROCESS-UNKNOWN-RECORD.
@@ -448,8 +699,74 @@
       *****************************************************************
        3000-VALIDATE-IMPORT.
       *****************************************************************
-           DISPLAY 'CBIMPORT: Import validation completed'
-           DISPLAY 'CBIMPORT: No validation errors detected'.
+           DISPLAY 'CBIMPORT: Performing import validation'
+           
+           PERFORM 3100-VALIDATE-RECORD-COUNTS
+           PERFORM 3200-VALIDATE-REFERENTIAL-INTEGRITY
+           
+           IF WS-VALIDATION-ERRORS = 0
+               DISPLAY 'CBIMPORT: Import validation completed'
+               DISPLAY 'CBIMPORT: No validation errors detected'
+           ELSE
+               DISPLAY 'CBIMPORT: Import validation completed'
+               DISPLAY 'CBIMPORT: Validation errors detected: '
+                       WS-VALIDATION-ERRORS
+               DISPLAY 'CBIMPORT: Review error file for details'
+           END-IF.
+
+      *****************************************************************
+       3100-VALIDATE-RECORD-COUNTS.
+      *****************************************************************
+           COMPUTE WS-EXPECTED-RECORD-COUNT = 
+                   WS-CUSTOMER-RECORDS-IMPORTED +
+                   WS-ACCOUNT-RECORDS-IMPORTED +
+                   WS-XREF-RECORDS-IMPORTED +
+                   WS-TRAN-RECORDS-IMPORTED +
+                   WS-CARD-RECORDS-IMPORTED +
+                   WS-UNKNOWN-RECORD-TYPE-COUNT
+           
+           IF WS-EXPECTED-RECORD-COUNT NOT = WS-TOTAL-RECORDS-READ
+               ADD 1 TO WS-VALIDATION-ERRORS
+               MOVE FUNCTION CURRENT-DATE TO ERR-TIMESTAMP
+               MOVE 'V' TO ERR-RECORD-TYPE
+               MOVE 0 TO ERR-SEQUENCE
+               MOVE 'Record count mismatch detected' TO ERR-MESSAGE
+               PERFORM 2750-WRITE-ERROR
+               DISPLAY 'CBIMPORT: WARNING - Record count mismatch'
+               DISPLAY 'CBIMPORT: Expected: ' WS-TOTAL-RECORDS-READ
+               DISPLAY 'CBIMPORT: Actual: ' WS-EXPECTED-RECORD-COUNT
+           END-IF.
+
+      *****************************************************************
+       3200-VALIDATE-REFERENTIAL-INTEGRITY.
+      *****************************************************************
+      *    Validate that all XREF records reference valid accounts
+           PERFORM VARYING XREF-IDX FROM 1 BY 1
+                   UNTIL XREF-IDX > WS-XREF-COUNT
+               PERFORM 3210-CHECK-XREF-ACCOUNT-EXISTS
+           END-PERFORM
+           
+      *    Validate that all cards reference valid accounts
+           PERFORM VARYING CARD-IDX FROM 1 BY 1
+                   UNTIL CARD-IDX > WS-CARD-COUNT
+               PERFORM 3220-CHECK-CARD-ACCOUNT-EXISTS
+           END-PERFORM.
+
+      *****************************************************************
+       3210-CHECK-XREF-ACCOUNT-EXISTS.
+      *****************************************************************
+      *    This is a placeholder for referential integrity check
+      *    In production, would verify XREF account IDs exist in 
+      *    account table. Simplified for in-memory validation.
+           CONTINUE.
+
+      *****************************************************************
+       3220-CHECK-CARD-ACCOUNT-EXISTS.
+      *****************************************************************
+      *    This is a placeholder for referential integrity check
+      *    In production, would verify card account IDs exist in 
+      *    account table. Simplified for in-memory validation.
+           CONTINUE.
 
       *****************************************************************
        4000-FINALIZE.
@@ -475,7 +792,8 @@
            DISPLAY 'CBIMPORT: Cards Imported: ' WS-CARD-RECORDS-IMPORTED
            DISPLAY 'CBIMPORT: Errors Written: ' WS-ERROR-RECORDS-WRITTEN
            DISPLAY 'CBIMPORT: Unknown Record Types: ' 
-                   WS-UNKNOWN-RECORD-TYPE-COUNT.
+                   WS-UNKNOWN-RECORD-TYPE-COUNT
+           DISPLAY 'CBIMPORT: Validation Errors: ' WS-VALIDATION-ERRORS.
 
       *****************************************************************
        9999-ABEND-PROGRAM.

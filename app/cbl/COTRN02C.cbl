@@ -1,4 +1,4 @@
-      ******************************************************************        
+******************************************************************        
       * Program     : COTRN02C.CBL
       * Application : CardDemo
       * Type        : CICS COBOL Program
@@ -40,6 +40,9 @@
          05 WS-ACCTDAT-FILE            PIC X(08) VALUE 'ACCTDAT '.
          05 WS-CCXREF-FILE             PIC X(08) VALUE 'CCXREF  '.
          05 WS-CXACAIX-FILE            PIC X(08) VALUE 'CXACAIX '.
+         05 WS-TRANTYPE-FILE           PIC X(08) VALUE 'TRNTYP  '.
+         05 WS-TRANCATG-FILE           PIC X(08) VALUE 'TRNCATG '.
+         05 WS-TRANSEQ-FILE            PIC X(08) VALUE 'TRANSEQ '.
 
          05 WS-ERR-FLG                 PIC X(01) VALUE 'N'.
            88 ERR-FLG-ON                         VALUE 'Y'.
@@ -58,6 +61,12 @@
          05 WS-TRAN-AMT-N              PIC S9(9)V99 VALUE ZERO.
          05 WS-TRAN-AMT-E              PIC +99999999.99 VALUE ZEROS.
          05 WS-DATE-FORMAT             PIC X(10) VALUE 'YYYY-MM-DD'.
+         05 WS-TRAN-TYPE-NUM           PIC 9(02) VALUE ZEROS.
+         05 WS-TRAN-CAT-NUM            PIC 9(04) VALUE ZEROS.
+
+       01 TRANSEQ-RECORD.
+         05 TRANSEQ-KEY                PIC X(08) VALUE 'TRANSEQ '.
+         05 TRANSEQ-NEXT-ID            PIC 9(16) VALUE ZEROS.
 
        01 CSUTLDTC-PARM.
           05 CSUTLDTC-DATE                   PIC X(10).
@@ -207,6 +216,7 @@
                                                 ACTIDINI OF COTRN2AI
                    PERFORM READ-CXACAIX-FILE
                    MOVE XREF-CARD-NUM         TO CARDNINI OF COTRN2AI
+                   PERFORM VALIDATE-ACCOUNT-STATUS
                WHEN CARDNINI OF COTRN2AI NOT = SPACES AND LOW-VALUES
                    IF CARDNINI OF COTRN2AI IS NOT NUMERIC
                        MOVE 'Y'     TO WS-ERR-FLG
@@ -221,6 +231,7 @@
                                                 CARDNINI OF COTRN2AI
                    PERFORM READ-CCXREF-FILE
                    MOVE XREF-ACCT-ID         TO ACTIDINI OF COTRN2AI
+                   PERFORM VALIDATE-ACCOUNT-STATUS
                WHEN OTHER
                    MOVE 'Y'     TO WS-ERR-FLG
                    MOVE 'Account or Card Number must be entered...' TO
@@ -336,6 +347,8 @@
                    CONTINUE
            END-EVALUATE
 
+           PERFORM VALIDATE-TRAN-TYPE-CATEGORY
+
            EVALUATE TRUE
                WHEN TRNAMTI OF COTRN2AI(1:1) NOT EQUAL '-' AND '+'
                WHEN TRNAMTI OF COTRN2AI(2:8) NOT NUMERIC
@@ -349,6 +362,11 @@
                WHEN OTHER
                    CONTINUE
            END-EVALUATE
+
+           COMPUTE WS-TRAN-AMT-N = FUNCTION NUMVAL-C(TRNAMTI OF
+           COTRN2AI)
+
+           PERFORM VALIDATE-AMOUNT-SIGN
 
            EVALUATE TRUE
                WHEN TORIGDTI OF COTRN2AI(1:4) IS NOT NUMERIC
@@ -380,8 +398,6 @@
                    CONTINUE
            END-EVALUATE
 
-           COMPUTE WS-TRAN-AMT-N = FUNCTION NUMVAL-C(TRNAMTI OF
-           COTRN2AI)
            MOVE WS-TRAN-AMT-N TO WS-TRAN-AMT-E
            MOVE WS-TRAN-AMT-E TO TRNAMTI OF COTRN2AI
 
@@ -437,16 +453,115 @@
            .
 
       *----------------------------------------------------------------*
+      *                 VALIDATE-ACCOUNT-STATUS
+      *----------------------------------------------------------------*
+       VALIDATE-ACCOUNT-STATUS.
+
+           EXEC CICS READ
+                DATASET   (WS-ACCTDAT-FILE)
+                INTO      (ACCOUNT-RECORD)
+                LENGTH    (LENGTH OF ACCOUNT-RECORD)
+                RIDFLD    (XREF-ACCT-ID)
+                KEYLENGTH (LENGTH OF ACCT-ID)
+                RESP      (WS-RESP-CD)
+                RESP2     (WS-REAS-CD)
+           END-EXEC
+
+           EVALUATE WS-RESP-CD
+               WHEN DFHRESP(NORMAL)
+                   IF ACCT-ACTIVE-STATUS NOT = 'Y'
+                       MOVE 'Y'     TO WS-ERR-FLG
+                       MOVE 'Account is not active...' TO
+                                       WS-MESSAGE
+                       MOVE -1       TO ACTIDINL OF COTRN2AI
+                       PERFORM SEND-TRNADD-SCREEN
+                   END-IF
+               WHEN DFHRESP(NOTFND)
+                   MOVE 'Y'     TO WS-ERR-FLG
+                   MOVE 'Account NOT found...' TO
+                                   WS-MESSAGE
+                   MOVE -1       TO ACTIDINL OF COTRN2AI
+                   PERFORM SEND-TRNADD-SCREEN
+               WHEN OTHER
+                   DISPLAY 'RESP:' WS-RESP-CD 'REAS:' WS-REAS-CD
+                   MOVE 'Y'     TO WS-ERR-FLG
+                   MOVE 'Unable to read Account file...' TO
+                                   WS-MESSAGE
+                   MOVE -1       TO ACTIDINL OF COTRN2AI
+                   PERFORM SEND-TRNADD-SCREEN
+           END-EVALUATE.
+
+      *----------------------------------------------------------------*
+      *                 VALIDATE-TRAN-TYPE-CATEGORY
+      *----------------------------------------------------------------*
+       VALIDATE-TRAN-TYPE-CATEGORY.
+
+           COMPUTE WS-TRAN-TYPE-NUM = FUNCTION NUMVAL(TTYPCDI OF
+           COTRN2AI)
+
+      *    Placeholder: Validate against TRANTYPECD file
+      *    For now, accept numeric values 01-99
+           IF WS-TRAN-TYPE-NUM < 1 OR WS-TRAN-TYPE-NUM > 99
+               MOVE 'Y'     TO WS-ERR-FLG
+               MOVE 'Type CD must be between 01 and 99...' TO
+                               WS-MESSAGE
+               MOVE -1       TO TTYPCDL OF COTRN2AI
+               PERFORM SEND-TRNADD-SCREEN
+           END-IF
+
+           COMPUTE WS-TRAN-CAT-NUM = FUNCTION NUMVAL(TCATCDI OF
+           COTRN2AI)
+
+      *    Placeholder: Validate against TRANCATG file
+      *    For now, accept numeric values 1000-9999
+           IF WS-TRAN-CAT-NUM < 1000 OR WS-TRAN-CAT-NUM > 9999
+               MOVE 'Y'     TO WS-ERR-FLG
+               MOVE 'Category CD must be between 1000 and 9999...' TO
+                               WS-MESSAGE
+               MOVE -1       TO TCATCDL OF COTRN2AI
+               PERFORM SEND-TRNADD-SCREEN
+           END-IF.
+
+      *----------------------------------------------------------------*
+      *                 VALIDATE-AMOUNT-SIGN
+      *----------------------------------------------------------------*
+       VALIDATE-AMOUNT-SIGN.
+
+      *    Debit transactions (type 01) should have negative amounts
+      *    Credit/refund transactions (type 02) should have positive
+      *    This is a business rule validation
+           COMPUTE WS-TRAN-TYPE-NUM = FUNCTION NUMVAL(TTYPCDI OF
+           COTRN2AI)
+
+           EVALUATE WS-TRAN-TYPE-NUM
+               WHEN 01
+      *            Debit - amount should be negative
+                   IF WS-TRAN-AMT-N >= 0
+                       MOVE 'Y'     TO WS-ERR-FLG
+                       MOVE 'Debit transaction amount must be negative'
+                         TO WS-MESSAGE
+                       MOVE -1       TO TRNAMTL OF COTRN2AI
+                       PERFORM SEND-TRNADD-SCREEN
+                   END-IF
+               WHEN 02
+      *            Credit/Refund - amount should be positive
+                   IF WS-TRAN-AMT-N < 0
+                       MOVE 'Y'     TO WS-ERR-FLG
+                       MOVE 'Credit transaction amount must be positive'
+                         TO WS-MESSAGE
+                       MOVE -1       TO TRNAMTL OF COTRN2AI
+                       PERFORM SEND-TRNADD-SCREEN
+                   END-IF
+               WHEN OTHER
+                   CONTINUE
+           END-EVALUATE.
+
+      *----------------------------------------------------------------*
       *                        ADD-TRANSACTION
       *----------------------------------------------------------------*
        ADD-TRANSACTION.
 
-           MOVE HIGH-VALUES TO TRAN-ID
-           PERFORM STARTBR-TRANSACT-FILE
-           PERFORM READPREV-TRANSACT-FILE
-           PERFORM ENDBR-TRANSACT-FILE
-           MOVE TRAN-ID     TO WS-TRAN-ID-N
-           ADD 1 TO WS-TRAN-ID-N
+           PERFORM GET-NEXT-TRAN-ID
            INITIALIZE TRAN-RECORD
            MOVE WS-TRAN-ID-N         TO TRAN-ID
            MOVE TTYPCDI  OF COTRN2AI TO TRAN-TYPE-CD
@@ -464,6 +579,65 @@
            MOVE TORIGDTI OF COTRN2AI TO TRAN-ORIG-TS
            MOVE TPROCDTI OF COTRN2AI TO TRAN-PROC-TS
            PERFORM WRITE-TRANSACT-FILE.
+
+      *----------------------------------------------------------------*
+      *                      GET-NEXT-TRAN-ID
+      *----------------------------------------------------------------*
+       GET-NEXT-TRAN-ID.
+
+      *    Use ENQ/DEQ to prevent race condition on transaction ID
+           EXEC CICS ENQ
+                RESOURCE('TRANSEQ ')
+                LENGTH(8)
+           END-EXEC
+
+           EXEC CICS READ
+                DATASET   (WS-TRANSEQ-FILE)
+                INTO      (TRANSEQ-RECORD)
+                LENGTH    (LENGTH OF TRANSEQ-RECORD)
+                RIDFLD    (TRANSEQ-KEY)
+                KEYLENGTH (LENGTH OF TRANSEQ-KEY)
+                UPDATE
+                RESP      (WS-RESP-CD)
+                RESP2     (WS-REAS-CD)
+           END-EXEC
+
+           EVALUATE WS-RESP-CD
+               WHEN DFHRESP(NORMAL)
+                   ADD 1 TO TRANSEQ-NEXT-ID
+                   MOVE TRANSEQ-NEXT-ID TO WS-TRAN-ID-N
+                   EXEC CICS REWRITE
+                        DATASET   (WS-TRANSEQ-FILE)
+                        FROM      (TRANSEQ-RECORD)
+                        LENGTH    (LENGTH OF TRANSEQ-RECORD)
+                   END-EXEC
+               WHEN DFHRESP(NOTFND)
+      *            Initialize sequence if not found
+                   MOVE 1000000000000001 TO TRANSEQ-NEXT-ID
+                   MOVE TRANSEQ-NEXT-ID TO WS-TRAN-ID-N
+                   EXEC CICS WRITE
+                        DATASET   (WS-TRANSEQ-FILE)
+                        FROM      (TRANSEQ-RECORD)
+                        LENGTH    (LENGTH OF TRANSEQ-RECORD)
+                        RIDFLD    (TRANSEQ-KEY)
+                        KEYLENGTH (LENGTH OF TRANSEQ-KEY)
+                   END-EXEC
+               WHEN OTHER
+                   DISPLAY 'RESP:' WS-RESP-CD 'REAS:' WS-REAS-CD
+                   MOVE 'Y'     TO WS-ERR-FLG
+                   MOVE 'Unable to get next Transaction ID...' TO
+                                   WS-MESSAGE
+                   MOVE -1       TO ACTIDINL OF COTRN2AI
+           END-EVALUATE
+
+           EXEC CICS DEQ
+                RESOURCE('TRANSEQ ')
+                LENGTH(8)
+           END-EXEC
+
+           IF ERR-FLG-ON
+               PERFORM SEND-TRNADD-SCREEN
+           END-IF.
 
       *----------------------------------------------------------------*
       *                      COPY-LAST-TRAN-DATA

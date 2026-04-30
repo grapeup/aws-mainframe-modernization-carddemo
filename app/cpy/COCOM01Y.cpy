@@ -1,4 +1,4 @@
-      ******************************************************************
+******************************************************************
       * Communication area for CardDemo application programs
       ******************************************************************
       * Copyright Amazon.com, Inc. or its affiliates.                   
@@ -16,6 +16,32 @@
       * either express or implied. See the License for the specific     
       * language governing permissions and limitations under the License
       ****************************************************************** 
+      ******************************************************************
+      * SECURITY NOTICE (Findings 1.1, 3.22):
+      * This COMMAREA contains session state without integrity checks.
+      * 
+      * REQUIRED REMEDIATION:
+      * Each program receiving this COMMAREA MUST re-validate the
+      * CDEMO-USER-TYPE from the authoritative security file/table
+      * (e.g., USRSEC file, RACF, ACF2, or Top Secret) at program
+      * entry before performing any privileged operations.
+      * 
+      * DO NOT trust CDEMO-USER-TYPE from COMMAREA alone.
+      * 
+      * Recommended validation logic in each program:
+      *   EXEC CICS READ
+      *        FILE('USRSEC')
+      *        RIDFLD(CDEMO-USER-ID)
+      *        INTO(WS-USER-SECURITY-REC)
+      *        ...
+      *   END-EXEC.
+      *   IF WS-USER-SEC-TYPE NOT = CDEMO-USER-TYPE
+      *      MOVE WS-USER-SEC-TYPE TO CDEMO-USER-TYPE
+      *   END-IF.
+      * 
+      * Session token and timestamp fields added below for future
+      * integrity verification implementation.
+      ******************************************************************
        01 CARDDEMO-COMMAREA.
           05 CDEMO-GENERAL-INFO.
              10 CDEMO-FROM-TRANID             PIC X(04).
@@ -23,12 +49,19 @@
              10 CDEMO-TO-TRANID               PIC X(04).
              10 CDEMO-TO-PROGRAM              PIC X(08).
              10 CDEMO-USER-ID                 PIC X(08).
+      *      WARNING: CDEMO-USER-TYPE must be re-validated from
+      *      authoritative security source at each program entry.
+      *      See header comments for required validation logic.
              10 CDEMO-USER-TYPE               PIC X(01).
                 88 CDEMO-USRTYP-ADMIN         VALUE 'A'.
                 88 CDEMO-USRTYP-USER          VALUE 'U'.
              10 CDEMO-PGM-CONTEXT             PIC 9(01).
                 88 CDEMO-PGM-ENTER            VALUE 0.
                 88 CDEMO-PGM-REENTER          VALUE 1.
+      *      Session integrity fields (for future implementation):
+             10 CDEMO-SESSION-TOKEN           PIC X(16).
+             10 CDEMO-SESSION-TIMESTAMP       PIC X(26).
+             10 CDEMO-SESSION-EXPIRY          PIC X(26).
           05 CDEMO-CUSTOMER-INFO.
              10 CDEMO-CUST-ID                 PIC 9(09).
              10 CDEMO-CUST-FNAME              PIC X(25).

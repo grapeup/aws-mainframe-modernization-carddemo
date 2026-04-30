@@ -1,4 +1,4 @@
-      ******************************************************************        
+******************************************************************        
       * Program     : COTRN01C.CBL
       * Application : CardDemo
       * Type        : CICS COBOL Program
@@ -272,7 +272,6 @@
                 LENGTH    (LENGTH OF TRAN-RECORD)
                 RIDFLD    (TRAN-ID)
                 KEYLENGTH (LENGTH OF TRAN-ID)
-                UPDATE
                 RESP      (WS-RESP-CD)
                 RESP2     (WS-REAS-CD)
            END-EXEC.

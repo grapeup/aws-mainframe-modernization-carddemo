@@ -1,4 +1,4 @@
-      ******************************************************************
+******************************************************************
       * Copyright Amazon.com, Inc. or its affiliates.                   
       * All Rights Reserved.                                            
       *                                                                 
@@ -27,12 +27,12 @@
              15  WS-CURTIME-SECOND       PIC 9(02).
              15  WS-CURTIME-MILSEC       PIC 9(02).
            10 WS-CURTIME-N REDEFINES WS-CURTIME PIC 9(08).
-         05 WS-CURDATE-MM-DD-YY.
+         05 WS-CURDATE-MM-DD-YYYY.
            10  WS-CURDATE-MM             PIC 9(02).
            10  FILLER                    PIC X(01) VALUE '/'.
            10  WS-CURDATE-DD             PIC 9(02).
            10  FILLER                    PIC X(01) VALUE '/'.
-           10  WS-CURDATE-YY             PIC 9(02).
+           10  WS-CURDATE-YYYY           PIC 9(04).
          05 WS-CURTIME-HH-MM-SS.
            10  WS-CURTIME-HH             PIC 9(02).
            10  FILLER                    PIC X(01) VALUE ':'.

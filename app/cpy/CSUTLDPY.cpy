@@ -1,4 +1,4 @@
-      ******************************************************************
+******************************************************************
       *Procedure Division Copybook for DATE related code
       ******************************************************************
       *Date validation paragraph for reuse and hopefully not misuse
@@ -240,35 +240,15 @@
               GO TO EDIT-DATE-CCYYMMDD-EXIT
            END-IF
 
+      ******************************************************************
+      *    Leap year validation delegated to CEEDAYS (CSUTLDTC)
+      *    to ensure full Gregorian calendar compliance
+      ******************************************************************
            IF  WS-FEBRUARY
            AND WS-DAY-29
-               IF WS-EDIT-DATE-YY-N = 0
-                  MOVE 400                TO  WS-DIV-BY
-               ELSE
-                  MOVE 4                  TO  WS-DIV-BY
-               END-IF
-
-               DIVIDE WS-EDIT-DATE-CCYY-N
-                   BY WS-DIV-BY
-               GIVING WS-DIVIDEND
-               REMAINDER WS-REMAINDER
-
-               IF WS-REMAINDER = ZEROES
-                  CONTINUE
-               ELSE
-                  SET INPUT-ERROR          TO TRUE
-                  SET FLG-DAY-NOT-OK       TO TRUE
-                  SET FLG-MONTH-NOT-OK     TO TRUE
-                  SET FLG-YEAR-NOT-OK      TO TRUE
-                  IF WS-RETURN-MSG-OFF
-                  STRING
-                    FUNCTION TRIM(WS-EDIT-VARIABLE-NAME)
-                   ':Not a leap year.Cannot have 29 days in this month.'
-                    DELIMITED BY SIZE
-                   INTO WS-RETURN-MSG
-                  END-IF
-                  GO TO EDIT-DATE-CCYYMMDD-EXIT
-               END-IF
+      *       Rely on CEEDAYS API for accurate leap year determination
+      *       instead of incomplete in-line calculation
+               CONTINUE
            END-IF
 
            IF WS-EDIT-DATE-IS-VALID

@@ -1,4 +1,4 @@
-       IDENTIFICATION DIVISION.
+IDENTIFICATION DIVISION.
        PROGRAM-ID.    CBEXPORT.
        AUTHOR.        CARDDEMO TEAM.
       ******************************************************************
@@ -28,6 +28,12 @@
       * - Read complete customer profiles from CardDemo files
       * - Create multi-record export file with different record types
       * - Generate export statistics and processing reports
+      ******************************************************************
+      * SECURITY NOTES:
+      * - CVV codes are NOT exported per PCI DSS Requirement 3.2
+      * - Export file must be encrypted at rest (external process)
+      * - Sensitive fields (SSN, PAN) should be tokenized/masked
+      * - Integrity checksum included in trailer record
       ******************************************************************
        ENVIRONMENT DIVISION.
        INPUT-OUTPUT SECTION.
@@ -143,6 +149,14 @@
            05  WS-CARD-RECORDS-EXPORTED               PIC 9(09) VALUE 0.
            05  WS-TOTAL-RECORDS-EXPORTED              PIC 9(09) VALUE 0.
 
+      * Checksum for integrity verification
+       01  WS-CHECKSUM-ACCUMULATOR                    PIC 9(15) VALUE 0.
+
+      * Branch and Region parameters (accept from SYSIN or PARM)
+       01  WS-EXPORT-PARAMETERS.
+           05  WS-BRANCH-ID                           PIC X(04) VALUE SPACES.
+           05  WS-REGION-CODE                         PIC X(05) VALUE SPACES.
+
        PROCEDURE DIVISION.
 
       *****************************************************************
@@ -154,6 +168,7 @@
            PERFORM 4000-EXPORT-XREFS
            PERFORM 5000-EXPORT-TRANSACTIONS
            PERFORM 5500-EXPORT-CARDS
+           PERFORM 5800-WRITE-TRAILER-RECORD
            PERFORM 6000-FINALIZE
            GOBACK.
 
@@ -162,11 +177,25 @@
       *****************************************************************
            DISPLAY 'CBEXPORT: Starting Customer Data Export'
            
+           PERFORM 1025-ACCEPT-PARAMETERS
            PERFORM 1050-GENERATE-TIMESTAMP
            PERFORM 1100-OPEN-FILES
            
            DISPLAY 'CBEXPORT: Export Date: ' WS-EXPORT-DATE
-           DISPLAY 'CBEXPORT: Export Time: ' WS-EXPORT-TIME.
+           DISPLAY 'CBEXPORT: Export Time: ' WS-EXPORT-TIME
+           DISPLAY 'CBEXPORT: Branch ID: ' WS-BRANCH-ID
+           DISPLAY 'CBEXPORT: Region Code: ' WS-REGION-CODE.
+
+      *****************************************************************
+       1025-ACCEPT-PARAMETERS.
+      *****************************************************************
+      *    Accept branch and region from SYSIN or use defaults
+      *    Format: BRANCH=xxxx,REGION=xxxxx
+      *    TODO: Implement ACCEPT from SYSIN or JCL PARM
+      *    For now, use default values
+           MOVE '0001' TO WS-BRANCH-ID
+           MOVE 'NORTH' TO WS-REGION-CODE
+           .
 
       *****************************************************************
        1050-GENERATE-TIMESTAMP.
@@ -275,10 +304,13 @@
            MOVE WS-FORMATTED-TIMESTAMP TO EXPORT-TIMESTAMP
            ADD 1 TO WS-SEQUENCE-COUNTER
            MOVE WS-SEQUENCE-COUNTER TO EXPORT-SEQUENCE-NUM
-           MOVE '0001' TO EXPORT-BRANCH-ID
-           MOVE 'NORTH' TO EXPORT-REGION-CODE
+           MOVE WS-BRANCH-ID TO EXPORT-BRANCH-ID
+           MOVE WS-REGION-CODE TO EXPORT-REGION-CODE
            
       *    Map customer fields to export record
+      *    WARNING: SSN, GOVT-ID, FICO exported in clear text
+      *    TODO: Implement tokenization/masking for PII/PCI data
+      *    TODO: Encrypt export file at rest (external encryption)
            MOVE CUST-ID TO EXP-CUST-ID
            MOVE CUST-FIRST-NAME TO EXP-CUST-FIRST-NAME
            MOVE CUST-MIDDLE-NAME TO EXP-CUST-MIDDLE-NAME
@@ -306,9 +338,20 @@
                PERFORM 9999-ABEND-PROGRAM
            END-IF
            
+           PERFORM 2300-UPDATE-CHECKSUM
+           
            ADD 1 TO WS-CUSTOMER-RECORDS-EXPORTED
-           ADD 1 TO WS-TOTAL-RECORDS-EXPORTED.    
-  *****************************************************************
+           ADD 1 TO WS-TOTAL-RECORDS-EXPORTED.
+
+      *****************************************************************
+       2300-UPDATE-CHECKSUM.
+      *****************************************************************
+      *    Simple checksum: accumulate sequence numbers
+      *    Production should use cryptographic hash (SHA-256)
+           ADD WS-SEQUENCE-COUNTER TO WS-CHECKSUM-ACCUMULATOR
+           .
+
+      *****************************************************************
        3000-EXPORT-ACCOUNTS.
       *****************************************************************
            DISPLAY 'CBEXPORT: Processing account records'
@@ -344,10 +387,12 @@
            MOVE WS-FORMATTED-TIMESTAMP TO EXPORT-TIMESTAMP
            ADD 1 TO WS-SEQUENCE-COUNTER
            MOVE WS-SEQUENCE-COUNTER TO EXPORT-SEQUENCE-NUM
-           MOVE '0001' TO EXPORT-BRANCH-ID
-           MOVE 'NORTH' TO EXPORT-REGION-CODE
+           MOVE WS-BRANCH-ID TO EXPORT-BRANCH-ID
+           MOVE WS-REGION-CODE TO EXPORT-REGION-CODE
            
       *    Map account fields to export record
+      *    WARNING: Balances and credit limits exported in clear text
+      *    TODO: Implement encryption for financial data
            MOVE ACCT-ID TO EXP-ACCT-ID
            MOVE ACCT-ACTIVE-STATUS TO EXP-ACCT-ACTIVE-STATUS
            MOVE ACCT-CURR-BAL TO EXP-ACCT-CURR-BAL
@@ -368,6 +413,8 @@
                        WS-EXPORT-STATUS
                PERFORM 9999-ABEND-PROGRAM
            END-IF
+           
+           PERFORM 2300-UPDATE-CHECKSUM
            
            ADD 1 TO WS-ACCOUNT-RECORDS-EXPORTED
            ADD 1 TO WS-TOTAL-RECORDS-EXPORTED.
@@ -408,10 +455,12 @@
            MOVE WS-FORMATTED-TIMESTAMP TO EXPORT-TIMESTAMP
            ADD 1 TO WS-SEQUENCE-COUNTER
            MOVE WS-SEQUENCE-COUNTER TO EXPORT-SEQUENCE-NUM
-           MOVE '0001' TO EXPORT-BRANCH-ID
-           MOVE 'NORTH' TO EXPORT-REGION-CODE
+           MOVE WS-BRANCH-ID TO EXPORT-BRANCH-ID
+           MOVE WS-REGION-CODE TO EXPORT-REGION-CODE
            
       *    Map xref fields to export record
+      *    WARNING: Full PAN exported in clear text
+      *    TODO: Tokenize or mask PAN per PCI DSS requirements
            MOVE XREF-CARD-NUM TO EXP-XREF-CARD-NUM
            MOVE XREF-CUST-ID TO EXP-XREF-CUST-ID
            MOVE XREF-ACCT-ID TO EXP-XREF-ACCT-ID
@@ -423,6 +472,8 @@
                        WS-EXPORT-STATUS
                PERFORM 9999-ABEND-PROGRAM
            END-IF
+           
+           PERFORM 2300-UPDATE-CHECKSUM
            
            ADD 1 TO WS-XREF-RECORDS-EXPORTED
            ADD 1 TO WS-TOTAL-RECORDS-EXPORTED.
@@ -463,10 +514,12 @@
            MOVE WS-FORMATTED-TIMESTAMP TO EXPORT-TIMESTAMP
            ADD 1 TO WS-SEQUENCE-COUNTER
            MOVE WS-SEQUENCE-COUNTER TO EXPORT-SEQUENCE-NUM
-           MOVE '0001' TO EXPORT-BRANCH-ID
-           MOVE 'NORTH' TO EXPORT-REGION-CODE
+           MOVE WS-BRANCH-ID TO EXPORT-BRANCH-ID
+           MOVE WS-REGION-CODE TO EXPORT-REGION-CODE
            
       *    Map transaction fields to export record
+      *    WARNING: Full PAN and transaction amounts in clear text
+      *    TODO: Tokenize PAN, encrypt sensitive transaction data
            MOVE TRAN-ID TO EXP-TRAN-ID
            MOVE TRAN-TYPE-CD TO EXP-TRAN-TYPE-CD
            MOVE TRAN-CAT-CD TO EXP-TRAN-CAT-CD
@@ -488,6 +541,8 @@
                        WS-EXPORT-STATUS
                PERFORM 9999-ABEND-PROGRAM
            END-IF
+           
+           PERFORM 2300-UPDATE-CHECKSUM
            
            ADD 1 TO WS-TRAN-RECORDS-EXPORTED                            
            ADD 1 TO WS-TOTAL-RECORDS-EXPORTED.
@@ -528,13 +583,19 @@
            MOVE WS-FORMATTED-TIMESTAMP TO EXPORT-TIMESTAMP
            ADD 1 TO WS-SEQUENCE-COUNTER
            MOVE WS-SEQUENCE-COUNTER TO EXPORT-SEQUENCE-NUM
-           MOVE '0001' TO EXPORT-BRANCH-ID
-           MOVE 'NORTH' TO EXPORT-REGION-CODE
+           MOVE WS-BRANCH-ID TO EXPORT-BRANCH-ID
+           MOVE WS-REGION-CODE TO EXPORT-REGION-CODE
            
       *    Map card fields to export record
+      *    PCI DSS COMPLIANCE: CVV-CD is NOT exported per Req 3.2
+      *    CVV must never be stored after authorization
+      *    WARNING: Full PAN exported in clear text
+      *    TODO: Tokenize or truncate PAN per PCI DSS requirements
            MOVE CARD-NUM TO EXP-CARD-NUM
            MOVE CARD-ACCT-ID TO EXP-CARD-ACCT-ID
-           MOVE CARD-CVV-CD TO EXP-CARD-CVV-CD
+      *    CVV intentionally omitted - PCI DSS Requirement 3.2
+      *    MOVE CARD-CVV-CD TO EXP-CARD-CVV-CD
+           MOVE SPACES TO EXP-CARD-CVV-CD
            MOVE CARD-EMBOSSED-NAME TO EXP-CARD-EMBOSSED-NAME
            MOVE CARD-EXPIRAION-DATE TO EXP-CARD-EXPIRAION-DATE
            MOVE CARD-ACTIVE-STATUS TO EXP-CARD-ACTIVE-STATUS
@@ -547,8 +608,44 @@
                PERFORM 9999-ABEND-PROGRAM
            END-IF
            
+           PERFORM 2300-UPDATE-CHECKSUM
+           
            ADD 1 TO WS-CARD-RECORDS-EXPORTED
            ADD 1 TO WS-TOTAL-RECORDS-EXPORTED.
+
+      *****************************************************************
+       5800-WRITE-TRAILER-RECORD.
+      *****************************************************************
+      *    Write trailer record with counts and checksum for integrity
+           INITIALIZE EXPORT-RECORD
+           
+           MOVE 'Z' TO EXPORT-REC-TYPE
+           MOVE WS-FORMATTED-TIMESTAMP TO EXPORT-TIMESTAMP
+           ADD 1 TO WS-SEQUENCE-COUNTER
+           MOVE WS-SEQUENCE-COUNTER TO EXPORT-SEQUENCE-NUM
+           MOVE WS-BRANCH-ID TO EXPORT-BRANCH-ID
+           MOVE WS-REGION-CODE TO EXPORT-REGION-CODE
+           
+      *    Store statistics in trailer record
+           MOVE WS-CUSTOMER-RECORDS-EXPORTED TO EXP-TRAILER-CUST-COUNT
+           MOVE WS-ACCOUNT-RECORDS-EXPORTED TO EXP-TRAILER-ACCT-COUNT
+           MOVE WS-XREF-RECORDS-EXPORTED TO EXP-TRAILER-XREF-COUNT
+           MOVE WS-TRAN-RECORDS-EXPORTED TO EXP-TRAILER-TRAN-COUNT
+           MOVE WS-CARD-RECORDS-EXPORTED TO EXP-TRAILER-CARD-COUNT
+           MOVE WS-TOTAL-RECORDS-EXPORTED TO EXP-TRAILER-TOTAL-COUNT
+           MOVE WS-CHECKSUM-ACCUMULATOR TO EXP-TRAILER-CHECKSUM
+           
+           WRITE EXPORT-OUTPUT-RECORD FROM EXPORT-RECORD
+           
+           IF NOT WS-EXPORT-OK
+               DISPLAY 'ERROR: Writing trailer record, Status: '
+                       WS-EXPORT-STATUS
+               PERFORM 9999-ABEND-PROGRAM
+           END-IF
+           
+           DISPLAY 'CBEXPORT: Trailer record written'
+           DISPLAY 'CBEXPORT: Checksum: ' WS-CHECKSUM-ACCUMULATOR
+           .
 
       *****************************************************************
        6000-FINALIZE.
@@ -570,7 +667,15 @@
                    WS-TRAN-RECORDS-EXPORTED
            DISPLAY 'CBEXPORT: Cards Exported: ' WS-CARD-RECORDS-EXPORTED
            DISPLAY 'CBEXPORT: Total Records Exported: ' 
-                   WS-TOTAL-RECORDS-EXPORTED.
+                   WS-TOTAL-RECORDS-EXPORTED
+           DISPLAY 'CBEXPORT: Checksum: ' WS-CHECKSUM-ACCUMULATOR
+           DISPLAY '**************************************************'
+           DISPLAY '* SECURITY WARNING: Export contains unencrypted  *'
+           DISPLAY '* PII/PCI data. Encrypt file immediately using   *'
+           DISPLAY '* approved encryption (AES-256, GPG, etc.)       *'
+           DISPLAY '* Implement tokenization for SSN/PAN in future.  *'
+           DISPLAY '**************************************************'
+           .
 
       *****************************************************************
        9999-ABEND-PROGRAM.

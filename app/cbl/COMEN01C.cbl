@@ -1,4 +1,4 @@
-      ******************************************************************
+******************************************************************
       * Program     : COMEN01C.CBL
       * Application : CardDemo
       * Type        : CICS COBOL Program
@@ -46,6 +46,28 @@
          05 WS-OPTION                  PIC 9(02) VALUE 0.
          05 WS-IDX                     PIC S9(04) COMP VALUE ZEROS.
          05 WS-MENU-OPT-TXT            PIC X(40) VALUE SPACES.
+         05 WS-VALID-PROGRAM           PIC X(01) VALUE 'N'.
+           88 VALID-PROGRAM                      VALUE 'Y'.
+           88 INVALID-PROGRAM                    VALUE 'N'.
+         05 WS-WHITELIST-IDX           PIC S9(04) COMP VALUE ZEROS.
+
+       01 WS-PROGRAM-WHITELIST.
+         05 WS-WHITELIST-COUNT         PIC 9(02) VALUE 12.
+         05 WS-WHITELIST-PROGRAMS.
+           10 FILLER                   PIC X(08) VALUE 'COACTUPC'.
+           10 FILLER                   PIC X(08) VALUE 'COBIL00C'.
+           10 FILLER                   PIC X(08) VALUE 'COCRDUPC'.
+           10 FILLER                   PIC X(08) VALUE 'COCRDSLC'.
+           10 FILLER                   PIC X(08) VALUE 'COPAUS0C'.
+           10 FILLER                   PIC X(08) VALUE 'CORPT00C'.
+           10 FILLER                   PIC X(08) VALUE 'COTRN00C'.
+           10 FILLER                   PIC X(08) VALUE 'COTRN01C'.
+           10 FILLER                   PIC X(08) VALUE 'COTRN02C'.
+           10 FILLER                   PIC X(08) VALUE 'COUSR00C'.
+           10 FILLER                   PIC X(08) VALUE 'COUSR01C'.
+           10 FILLER                   PIC X(08) VALUE 'COUSR02C'.
+         05 WS-WHITELIST-ENTRY REDEFINES WS-WHITELIST-PROGRAMS.
+           10 WS-ALLOWED-PROGRAM       PIC X(08) OCCURS 12 TIMES.
 
        COPY COCOM01Y.
        COPY COMEN02Y.
@@ -175,20 +197,55 @@
                             'is coming soon ...'   DELIMITED BY SIZE
                        INTO WS-MESSAGE
                   WHEN OTHER
-                     MOVE WS-TRANID    TO CDEMO-FROM-TRANID
-                     MOVE WS-PGMNAME   TO CDEMO-FROM-PROGRAM
-                     MOVE WS-PGMNAME   TO CDEMO-FROM-PROGRAM
-      *              MOVE WS-USER-ID   TO CDEMO-USER-ID
-      *              MOVE SEC-USR-TYPE TO CDEMO-USER-TYPE
-                     MOVE ZEROS        TO CDEMO-PGM-CONTEXT
-                     EXEC CICS
-                         XCTL PROGRAM(CDEMO-MENU-OPT-PGMNAME(WS-OPTION))
-                         COMMAREA(CARDDEMO-COMMAREA)
-                     END-EXEC
+                     PERFORM VALIDATE-PROGRAM-NAME
+                     IF VALID-PROGRAM
+                        MOVE WS-TRANID    TO CDEMO-FROM-TRANID
+                        MOVE WS-PGMNAME   TO CDEMO-FROM-PROGRAM
+                        MOVE WS-PGMNAME   TO CDEMO-FROM-PROGRAM
+      *                 MOVE WS-USER-ID   TO CDEMO-USER-ID
+      *                 MOVE SEC-USR-TYPE TO CDEMO-USER-TYPE
+                        MOVE ZEROS        TO CDEMO-PGM-CONTEXT
+                        EXEC CICS
+                            XCTL
+                            PROGRAM(CDEMO-MENU-OPT-PGMNAME(WS-OPTION))
+                            COMMAREA(CARDDEMO-COMMAREA)
+                        END-EXEC
+                     ELSE
+                        SET ERR-FLG-ON          TO TRUE
+                        MOVE SPACES             TO WS-MESSAGE
+                        MOVE DFHRED             TO ERRMSGC OF COMEN1AO
+                        STRING 'Program '       DELIMITED BY SIZE
+                               CDEMO-MENU-OPT-PGMNAME(WS-OPTION)
+                                                DELIMITED BY SPACE
+                               ' not authorized for execution'
+                                                DELIMITED BY SIZE
+                          INTO WS-MESSAGE
+                     END-IF
               END-EVALUATE
 
               PERFORM SEND-MENU-SCREEN
            END-IF.
+
+      *----------------------------------------------------------------*
+      *                      VALIDATE-PROGRAM-NAME
+      *----------------------------------------------------------------*
+       VALIDATE-PROGRAM-NAME.
+
+           SET INVALID-PROGRAM TO TRUE
+
+           IF CDEMO-MENU-OPT-PGMNAME(WS-OPTION) = SPACES OR
+              CDEMO-MENU-OPT-PGMNAME(WS-OPTION) = LOW-VALUES
+               EXIT PARAGRAPH
+           END-IF
+
+           PERFORM VARYING WS-WHITELIST-IDX FROM 1 BY 1
+                   UNTIL WS-WHITELIST-IDX > WS-WHITELIST-COUNT
+                      OR VALID-PROGRAM
+               IF CDEMO-MENU-OPT-PGMNAME(WS-OPTION) =
+                  WS-ALLOWED-PROGRAM(WS-WHITELIST-IDX)
+                   SET VALID-PROGRAM TO TRUE
+               END-IF
+           END-PERFORM.
 
       *----------------------------------------------------------------*
       *                      RETURN-TO-SIGNON-SCREEN

@@ -1,4 +1,4 @@
-      ******************************************************************        
+******************************************************************        
       * Program     : COUSR02C.CBL
       * Application : CardDemo
       * Type        : CICS COBOL Program
@@ -166,7 +166,9 @@
            IF NOT ERR-FLG-ON
                MOVE SEC-USR-FNAME      TO FNAMEI    OF COUSR2AI
                MOVE SEC-USR-LNAME      TO LNAMEI    OF COUSR2AI
-               MOVE SEC-USR-PWD        TO PASSWDI   OF COUSR2AI
+      *        Do not send existing password to screen
+      *        MOVE SEC-USR-PWD        TO PASSWDI   OF COUSR2AI
+               MOVE SPACES             TO PASSWDI   OF COUSR2AI
                MOVE SEC-USR-TYPE       TO USRTYPEI  OF COUSR2AI
                PERFORM SEND-USRUPD-SCREEN
            END-IF.
@@ -195,12 +197,6 @@
                                    WS-MESSAGE
                    MOVE -1       TO LNAMEL OF COUSR2AI
                    PERFORM SEND-USRUPD-SCREEN
-               WHEN PASSWDI OF COUSR2AI = SPACES OR LOW-VALUES
-                   MOVE 'Y'     TO WS-ERR-FLG
-                   MOVE 'Password can NOT be empty...' TO
-                                   WS-MESSAGE
-                   MOVE -1       TO PASSWDL OF COUSR2AI
-                   PERFORM SEND-USRUPD-SCREEN
                WHEN USRTYPEI OF COUSR2AI = SPACES OR LOW-VALUES
                    MOVE 'Y'     TO WS-ERR-FLG
                    MOVE 'User Type can NOT be empty...' TO
@@ -224,7 +220,8 @@
                    MOVE LNAMEI   OF COUSR2AI TO SEC-USR-LNAME
                    SET USR-MODIFIED-YES TO TRUE
                END-IF
-               IF PASSWDI  OF COUSR2AI NOT = SEC-USR-PWD
+      *        Only update password if user entered a new one
+               IF PASSWDI  OF COUSR2AI NOT = SPACES AND LOW-VALUES
                    MOVE PASSWDI  OF COUSR2AI TO SEC-USR-PWD
                    SET USR-MODIFIED-YES TO TRUE
                END-IF

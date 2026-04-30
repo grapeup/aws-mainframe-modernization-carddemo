@@ -154,6 +154,9 @@
            END-PERFORM.
 
            PERFORM 9000-ACCTFILE-CLOSE.
+           PERFORM 9100-OUTFILE-CLOSE.
+           PERFORM 9200-ARRFILE-CLOSE.
+           PERFORM 9300-VBRFILE-CLOSE.
 
            DISPLAY 'END OF EXECUTION OF PROGRAM CBACT01C'.
 
@@ -233,9 +236,7 @@
            MOVE   CODATECN-0UT-DATE       TO   OUT-ACCT-REISSUE-DATE.
 
            MOVE   ACCT-CURR-CYC-CREDIT    TO   OUT-ACCT-CURR-CYC-CREDIT.
-           IF  ACCT-CURR-CYC-DEBIT EQUAL TO ZERO
-               MOVE 2525.00         TO   OUT-ACCT-CURR-CYC-DEBIT
-           END-IF.
+           MOVE   ACCT-CURR-CYC-DEBIT     TO   OUT-ACCT-CURR-CYC-DEBIT.
            MOVE   ACCT-GROUP-ID           TO   OUT-ACCT-GROUP-ID.
            EXIT.
       *---------------------------------------------------------------*
@@ -253,11 +254,11 @@
        1400-POPUL-ARRAY-RECORD.
            MOVE   ACCT-ID         TO   ARR-ACCT-ID.
            MOVE   ACCT-CURR-BAL   TO   ARR-ACCT-CURR-BAL(1).
-           MOVE   1005.00         TO   ARR-ACCT-CURR-CYC-DEBIT(1).
+           MOVE   ACCT-CURR-CYC-DEBIT TO ARR-ACCT-CURR-CYC-DEBIT(1).
            MOVE   ACCT-CURR-BAL   TO   ARR-ACCT-CURR-BAL(2).
-           MOVE   1525.00         TO   ARR-ACCT-CURR-CYC-DEBIT(2).
-           MOVE   -1025.00        TO   ARR-ACCT-CURR-BAL(3).
-           MOVE   -2500.00        TO   ARR-ACCT-CURR-CYC-DEBIT(3).
+           MOVE   ACCT-CURR-CYC-DEBIT TO ARR-ACCT-CURR-CYC-DEBIT(2).
+           MOVE   ACCT-CURR-BAL   TO   ARR-ACCT-CURR-BAL(3).
+           MOVE   ACCT-CURR-CYC-DEBIT TO ARR-ACCT-CURR-CYC-DEBIT(3).
            EXIT.
       *---------------------------------------------------------------*
        1450-WRITE-ARRY-RECORD.
@@ -399,12 +400,66 @@
                DISPLAY 'ERROR CLOSING ACCOUNT FILE'
                MOVE ACCTFILE-STATUS TO IO-STATUS
                PERFORM 9910-DISPLAY-IO-STATUS
-               PERFORM 9999-ABEND-PROGRAM
            END-IF
            EXIT.
-
+      *---------------------------------------------------------------*
+       9100-OUTFILE-CLOSE.
+           ADD 8 TO ZERO GIVING APPL-RESULT.
+           CLOSE OUT-FILE
+           IF  OUTFILE-STATUS = '00'
+               SUBTRACT APPL-RESULT FROM APPL-RESULT
+           ELSE
+               ADD 12 TO ZERO GIVING APPL-RESULT
+           END-IF
+           IF  APPL-AOK
+               CONTINUE
+           ELSE
+               DISPLAY 'ERROR CLOSING OUT FILE'
+               MOVE OUTFILE-STATUS TO IO-STATUS
+               PERFORM 9910-DISPLAY-IO-STATUS
+           END-IF
+           EXIT.
+      *---------------------------------------------------------------*
+       9200-ARRFILE-CLOSE.
+           ADD 8 TO ZERO GIVING APPL-RESULT.
+           CLOSE ARRY-FILE
+           IF  ARRYFILE-STATUS = '00'
+               SUBTRACT APPL-RESULT FROM APPL-RESULT
+           ELSE
+               ADD 12 TO ZERO GIVING APPL-RESULT
+           END-IF
+           IF  APPL-AOK
+               CONTINUE
+           ELSE
+               DISPLAY 'ERROR CLOSING ARRAY FILE'
+               MOVE ARRYFILE-STATUS TO IO-STATUS
+               PERFORM 9910-DISPLAY-IO-STATUS
+           END-IF
+           EXIT.
+      *---------------------------------------------------------------*
+       9300-VBRFILE-CLOSE.
+           ADD 8 TO ZERO GIVING APPL-RESULT.
+           CLOSE VBRC-FILE
+           IF  VBRCFILE-STATUS = '00'
+               SUBTRACT APPL-RESULT FROM APPL-RESULT
+           ELSE
+               ADD 12 TO ZERO GIVING APPL-RESULT
+           END-IF
+           IF  APPL-AOK
+               CONTINUE
+           ELSE
+               DISPLAY 'ERROR CLOSING VBRC FILE'
+               MOVE VBRCFILE-STATUS TO IO-STATUS
+               PERFORM 9910-DISPLAY-IO-STATUS
+           END-IF
+           EXIT.
+      *---------------------------------------------------------------*
        9999-ABEND-PROGRAM.
            DISPLAY 'ABENDING PROGRAM'
+           PERFORM 9000-ACCTFILE-CLOSE
+           PERFORM 9100-OUTFILE-CLOSE
+           PERFORM 9200-ARRFILE-CLOSE
+           PERFORM 9300-VBRFILE-CLOSE
            MOVE 0 TO TIMING
            MOVE 999 TO ABCODE
            CALL 'CEE3ABD' USING ABCODE, TIMING.

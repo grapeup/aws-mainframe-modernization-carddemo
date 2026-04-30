@@ -1,4 +1,4 @@
-      ******************************************************************
+******************************************************************
       *Working Storage Copybook for DATE related code
       ******************************************************************
            10 WS-EDIT-DATE-CCYYMMDD.
@@ -8,6 +8,7 @@
                                                    PIC 9(2).
                     88 THIS-CENTURY                VALUE 20.
                     88 LAST-CENTURY                VALUE 19.
+                    88 NEXT-CENTURY                VALUE 21.
                  25 WS-EDIT-DATE-YY                PIC X(2).
                  25 WS-EDIT-DATE-YY-N REDEFINES    WS-EDIT-DATE-YY
                                                    PIC 9(2).

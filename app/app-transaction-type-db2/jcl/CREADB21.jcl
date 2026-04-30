@@ -1,5 +1,5 @@
 //CREADB2  JOB (DB2CR),'SNJARAO',CLASS=A,MSGCLASS=A,                    00010016
-//         TIME=1440,NOTIFY=&SYSUID,TYPRUN=SCAN                         00020021
+//         TIME=1440,NOTIFY=&SYSUID                                     00020021
 //******************************************************************    00021025
 //* Copyright Amazon.com, Inc. or its affiliates.                       00022025
 //* All Rights Reserved.                                                00023025

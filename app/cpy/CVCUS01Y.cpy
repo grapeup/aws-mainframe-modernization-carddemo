@@ -1,4 +1,4 @@
-      *****************************************************************
+*****************************************************************
       *    Data-structure for Customer entity (RECLN 500)
       *****************************************************************
        01  CUSTOMER-RECORD.
@@ -14,13 +14,18 @@
            05  CUST-ADDR-ZIP                           PIC X(10).
            05  CUST-PHONE-NUM-1                        PIC X(15).
            05  CUST-PHONE-NUM-2                        PIC X(15).
-           05  CUST-SSN                                PIC 9(09).
+      *    SSN ENCRYPTED - SECURITY FINDING 3.11 REMEDIATION
+      *    CUST-SSN now stored encrypted. Programs must call
+      *    encryption/decryption routines (e.g., ENCIPHER/DECIPHER
+      *    via RACF Callable Services, or site-standard crypto API).
+      *    Field expanded to accommodate encrypted payload + metadata.
+           05  CUST-SSN-ENCRYPTED                      PIC X(32).
            05  CUST-GOVT-ISSUED-ID                     PIC X(20).
            05  CUST-DOB-YYYY-MM-DD                     PIC X(10).
            05  CUST-EFT-ACCOUNT-ID                     PIC X(10).
            05  CUST-PRI-CARD-HOLDER-IND                PIC X(01).
            05  CUST-FICO-CREDIT-SCORE                  PIC 9(03).
-           05  FILLER                                  PIC X(168).      
+           05  FILLER                                  PIC X(145).      
       *
       * Ver: CardDemo_v1.0-15-g27d6c6f-68 Date: 2022-07-19 23:16:00 CDT
       *

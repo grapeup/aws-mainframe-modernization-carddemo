@@ -1,4 +1,4 @@
-      ******************************************************************
+******************************************************************
       * Program     : CBTRN02C.CBL                                      
       * Application : CardDemo                                          
       * Type        : BATCH COBOL Program                                
@@ -404,19 +404,17 @@
                                     - ACCT-CURR-CYC-DEBIT                       
                                     + DALYTRAN-AMT                              
                                                                                 
-                IF ACCT-CREDIT-LIMIT >= WS-TEMP-BAL                             
-                  CONTINUE                                                      
-                ELSE                                                            
+                IF ACCT-CREDIT-LIMIT < WS-TEMP-BAL                              
                   MOVE 102 TO WS-VALIDATION-FAIL-REASON                         
                   MOVE 'OVERLIMIT TRANSACTION'                                  
                     TO WS-VALIDATION-FAIL-REASON-DESC                           
                 END-IF                                                          
-                IF ACCT-EXPIRAION-DATE >= DALYTRAN-ORIG-TS (1:10)               
-                  CONTINUE                                                      
-                ELSE                                                            
-                  MOVE 103 TO WS-VALIDATION-FAIL-REASON                         
-                  MOVE 'TRANSACTION RECEIVED AFTER ACCT EXPIRATION'             
-                    TO WS-VALIDATION-FAIL-REASON-DESC                           
+                IF WS-VALIDATION-FAIL-REASON = 0                                
+                  IF ACCT-EXPIRAION-DATE < DALYTRAN-ORIG-TS (1:10)              
+                    MOVE 103 TO WS-VALIDATION-FAIL-REASON                       
+                    MOVE 'TRANSACTION RECEIVED AFTER ACCT EXPIRATION'           
+                      TO WS-VALIDATION-FAIL-REASON-DESC                         
+                  END-IF                                                        
                 END-IF                                                          
            END-READ                                                             
            EXIT.                                                                

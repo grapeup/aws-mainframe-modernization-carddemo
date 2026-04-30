@@ -1,4 +1,4 @@
-      ******************************************************************        
+******************************************************************        
       * Program     : COADM01C.CBL                                              
       * Application : CardDemo                                                  
       * Type        : CICS COBOL Program                                        
@@ -74,10 +74,6 @@
        PROCEDURE DIVISION.                                                      
        MAIN-PARA.                                                               
                                                                                 
-           EXEC CICS
-                HANDLE CONDITION PGMIDERR(PGMIDERR-ERR-PARA)
-           END-EXEC
-
            SET ERR-FLG-OFF TO TRUE                                              
                                                                                 
            MOVE SPACES TO WS-MESSAGE                                            
@@ -88,6 +84,13 @@
                PERFORM RETURN-TO-SIGNON-SCREEN                                  
            ELSE                                                                 
                MOVE DFHCOMMAREA(1:EIBCALEN) TO CARDDEMO-COMMAREA                
+      *        Validate user type - Admin menu requires Admin user              
+               IF CDEMO-USER-TYPE NOT = 'A'                                     
+                   MOVE 'Unauthorized access. Admin privileges required.'      
+                        TO WS-MESSAGE                                           
+                   MOVE 'COSGN00C' TO CDEMO-TO-PROGRAM                          
+                   PERFORM RETURN-TO-SIGNON-SCREEN                              
+               END-IF                                                           
                IF NOT CDEMO-PGM-REENTER                                         
                    SET CDEMO-PGM-REENTER    TO TRUE                             
                    MOVE LOW-VALUES          TO COADM1AO                         
@@ -145,16 +148,29 @@
                    EXEC CICS                                                    
                        XCTL PROGRAM(CDEMO-ADMIN-OPT-PGMNAME(WS-OPTION))         
                        COMMAREA(CARDDEMO-COMMAREA)                              
+                       RESP(WS-RESP-CD)                                         
+                       RESP2(WS-REAS-CD)                                        
                    END-EXEC                                                     
+                   IF WS-RESP-CD NOT = DFHRESP(NORMAL)                          
+                       MOVE SPACES             TO WS-MESSAGE                    
+                       MOVE DFHGREEN           TO ERRMSGC  OF COADM1AO          
+                       STRING 'This option '       DELIMITED BY SIZE            
+      *                        CDEMO-ADMIN-OPT-NAME(WS-OPTION)                  
+      *                                        DELIMITED BY SIZE                
+                               'is not installed ...'   DELIMITED BY SIZE       
+                          INTO WS-MESSAGE                                       
+                       PERFORM SEND-MENU-SCREEN                                 
+                   END-IF                                                       
+               ELSE                                                             
+                   MOVE SPACES             TO WS-MESSAGE                        
+                   MOVE DFHGREEN           TO ERRMSGC  OF COADM1AO              
+                   STRING 'This option '       DELIMITED BY SIZE                
+      *                    CDEMO-ADMIN-OPT-NAME(WS-OPTION)                      
+      *                                    DELIMITED BY SIZE                    
+                           'is not installed ...'   DELIMITED BY SIZE           
+                      INTO WS-MESSAGE                                           
+                   PERFORM SEND-MENU-SCREEN                                     
                END-IF                                                           
-               MOVE SPACES             TO WS-MESSAGE                            
-               MOVE DFHGREEN           TO ERRMSGC  OF COADM1AO                  
-               STRING 'This option '       DELIMITED BY SIZE                    
-      *                CDEMO-ADMIN-OPT-NAME(WS-OPTION)                          
-      *                                DELIMITED BY SIZE                        
-                       'is not installed ...'   DELIMITED BY SIZE               
-                  INTO WS-MESSAGE                                               
-               PERFORM SEND-MENU-SCREEN                                         
            END-IF.                                                              
                                                                                 
       *----------------------------------------------------------------*        
@@ -167,6 +183,8 @@
            END-IF                                                               
            EXEC CICS                                                            
                XCTL PROGRAM(CDEMO-TO-PROGRAM)                                   
+               RESP(WS-RESP-CD)                                                 
+               RESP2(WS-REAS-CD)                                                
            END-EXEC.                                                            
                                                                                 
       *----------------------------------------------------------------*        
@@ -264,25 +282,7 @@
                END-EVALUATE                                                     
                                                                                 
            END-PERFORM.                                                         
-      *----------------------------------------------------------------*        
-      *      PGMIDERROR     HANDLE-MISSING MENU OPTIONS                         
-      *----------------------------------------------------------------*        
-       PGMIDERR-ERR-PARA.
-           MOVE SPACES             TO WS-MESSAGE                                
-           MOVE DFHGREEN           TO ERRMSGC  OF COADM1AO                      
-           STRING 'This option '       DELIMITED BY SIZE                        
-      *                CDEMO-ADMIN-OPT-NAME(WS-OPTION)                          
-      *                                DELIMITED BY SIZE                        
-                       'is not installed ...'   DELIMITED BY SIZE               
-           INTO WS-MESSAGE
-                                                                                
-           PERFORM SEND-MENU-SCREEN
-           EXEC CICS RETURN                                                     
-                     TRANSID (WS-TRANID)                                        
-                     COMMAREA (CARDDEMO-COMMAREA)                               
-           END-EXEC.
-           .
                                                                                 
       *                                                                         
       * Ver: CardDemo_v1.0-15-g27d6c6f-68 Date: 2022-07-19 23:12:32 CDT         
-      *                                                                         
+      *

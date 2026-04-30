@@ -1,4 +1,4 @@
-      *****************************************************************         
+*****************************************************************         
       * Program:     COACTVWC.CBL                                     *         
       * Layer:       Business logic                                   *         
       * Function:    Accept and process Account View request          *         
@@ -492,12 +492,9 @@
                                                                                 
               IF FOUND-CUST-IN-MASTER                                           
                 MOVE CUST-ID              TO ACSTNUMO OF CACTVWAO               
-      *         MOVE CUST-SSN             TO ACSTSSNO OF CACTVWAO       
+      *         MASK SSN - SHOW LAST 4 ONLY (PII PROTECTION)
                 STRING 
-                    CUST-SSN(1:3)
-                    '-'                 
-                    CUST-SSN(4:2)
-                    '-'
+                    'XXX-XX-'
                     CUST-SSN(6:4)
                     DELIMITED BY SIZE
                     INTO ACSTSSNO OF CACTVWAO

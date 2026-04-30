@@ -1,4 +1,4 @@
-      **************************************** *************************
+**************************************** *************************
       * Program:     COACTUPC.CBL                                     *
       * Layer:       Business logic                                   *
       * Function:    Accept and process ACCOUNT UPDATE                *
@@ -848,6 +848,7 @@
                     88 FICO-RANGE-IS-VALID             VALUES 300
                                                        THROUGH 850.
        01  WS-COMMAREA                                 PIC X(2000).
+       01  WS-EXPECTED-COMMAREA-LEN                    PIC S9(4) COMP.
 
 
        LINKAGE SECTION.
@@ -877,6 +878,10 @@
       *****************************************************************
       * Store passed data if  any                *
       *****************************************************************
+           COMPUTE WS-EXPECTED-COMMAREA-LEN =
+                   LENGTH OF CARDDEMO-COMMAREA +
+                   LENGTH OF WS-THIS-PROGCOMMAREA
+
            IF EIBCALEN IS EQUAL TO 0
                OR (CDEMO-FROM-PROGRAM = LIT-MENUPGM
                AND NOT CDEMO-PGM-REENTER)
@@ -885,11 +890,18 @@
               SET CDEMO-PGM-ENTER TO TRUE
               SET ACUP-DETAILS-NOT-FETCHED TO TRUE
            ELSE
-              MOVE DFHCOMMAREA (1:LENGTH OF CARDDEMO-COMMAREA)  TO
-                                CARDDEMO-COMMAREA
-              MOVE DFHCOMMAREA(LENGTH OF CARDDEMO-COMMAREA + 1:
-                               LENGTH OF WS-THIS-PROGCOMMAREA ) TO
-                                WS-THIS-PROGCOMMAREA
+              IF EIBCALEN < WS-EXPECTED-COMMAREA-LEN
+                 INITIALIZE CARDDEMO-COMMAREA
+                            WS-THIS-PROGCOMMAREA
+                 SET CDEMO-PGM-ENTER TO TRUE
+                 SET ACUP-DETAILS-NOT-FETCHED TO TRUE
+              ELSE
+                 MOVE DFHCOMMAREA (1:LENGTH OF CARDDEMO-COMMAREA)  TO
+                                   CARDDEMO-COMMAREA
+                 MOVE DFHCOMMAREA(LENGTH OF CARDDEMO-COMMAREA + 1:
+                                  LENGTH OF WS-THIS-PROGCOMMAREA ) TO
+                                   WS-THIS-PROGCOMMAREA
+              END-IF
            END-IF
       *****************************************************************
       * Remap PFkeys as needed.
@@ -3886,6 +3898,11 @@
            EXIT
            .
        9600-WRITE-PROCESSING.
+      ******************************************************************
+      * TODO: Implement audit trail logging for account/customer      *
+      * updates. Log user ID, timestamp, old values, new values to     *
+      * audit file or SMF records.                                     *
+      ******************************************************************
 
       *    Read the account file for update
 
@@ -3938,6 +3955,9 @@
               IF  WS-RETURN-MSG-OFF
                   SET COULD-NOT-LOCK-CUST-FOR-UPDATE  TO TRUE
               END-IF
+              EXEC CICS
+                   SYNCPOINT ROLLBACK
+              END-EXEC
               GO TO 9600-WRITE-PROCESSING-EXIT
            END-IF
 
@@ -3948,6 +3968,9 @@
               THRU 9700-CHECK-CHANGE-IN-REC-EXIT
 
            IF DATA-WAS-CHANGED-BEFORE-UPDATE
+              EXEC CICS
+                   SYNCPOINT ROLLBACK
+              END-EXEC
               GO TO 9600-WRITE-PROCESSING-EXIT
            END-IF
       *****************************************************************
@@ -4077,6 +4100,9 @@
              CONTINUE
            ELSE
              SET LOCKED-BUT-UPDATE-FAILED    TO TRUE
+             EXEC CICS
+                  SYNCPOINT ROLLBACK
+             END-EXEC
              GO TO 9600-WRITE-PROCESSING-EXIT
            END-IF
       *****************************************************************
@@ -4172,11 +4198,11 @@
            AND FUNCTION UPPER-CASE (CUST-GOVT-ISSUED-ID      ) EQUAL
                FUNCTION UPPER-CASE (ACUP-OLD-CUST-GOVT-ISSUED-ID )
            AND CUST-DOB-YYYY-MM-DD (1:4)                       EQUAL
-               ACUP-OLD-CUST-DOB-YYYY-MM-DD (1:4)
+               ACUP-OLD-CUST-DOB-YEAR
            AND CUST-DOB-YYYY-MM-DD (6:2)                       EQUAL
-               ACUP-OLD-CUST-DOB-YYYY-MM-DD (5:2)
+               ACUP-OLD-CUST-DOB-MON
            AND CUST-DOB-YYYY-MM-DD (9:2)                       EQUAL
-               ACUP-OLD-CUST-DOB-YYYY-MM-DD (7:2)
+               ACUP-OLD-CUST-DOB-DAY
 
            AND CUST-EFT-ACCOUNT-ID     EQUAL
                                             ACUP-OLD-CUST-EFT-ACCOUNT-ID
