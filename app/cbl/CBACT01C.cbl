@@ -453,13 +453,13 @@
                PERFORM 9910-DISPLAY-IO-STATUS
            END-IF
            EXIT.
-      *---------------------------------------------------------------*
+
        9999-ABEND-PROGRAM.
            DISPLAY 'ABENDING PROGRAM'
-           PERFORM 9000-ACCTFILE-CLOSE
-           PERFORM 9100-OUTFILE-CLOSE
-           PERFORM 9200-ARRFILE-CLOSE
-           PERFORM 9300-VBRFILE-CLOSE
+           PERFORM 9000-ACCTFILE-CLOSE.
+           PERFORM 9100-OUTFILE-CLOSE.
+           PERFORM 9200-ARRFILE-CLOSE.
+           PERFORM 9300-VBRFILE-CLOSE.
            MOVE 0 TO TIMING
            MOVE 999 TO ABCODE
            CALL 'CEE3ABD' USING ABCODE, TIMING.

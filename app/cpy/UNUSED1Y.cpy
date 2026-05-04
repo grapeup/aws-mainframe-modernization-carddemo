@@ -1,8 +1,1 @@
-*******************************************************************************
-* THIS FILE HAS BEEN REMOVED PER SECURITY FINDING 3.32                       *
-* REASON: UNUSED COPYBOOK CONTAINING PASSWORD FIELD (DEAD CODE)              *
-* DATE REMOVED: AS PER REMEDIATION RECOMMENDATION                            *
-*                                                                             *
-* IF THIS FILE IS STILL REFERENCED ANYWHERE, REMOVE THOSE REFERENCES         *
-* ORIGINAL STRUCTURE CONTAINED UNUSED-PWD FIELD - NO LONGER NEEDED           *
-*******************************************************************************
+BadRequestError("Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CahJCcQgqmZmHPKtWWPe5'}")

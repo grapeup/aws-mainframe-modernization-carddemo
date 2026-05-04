@@ -1,18 +1,1 @@
-*****************************************************************
-      *    Data-structure for card entity (RECLN 150)
-      *****************************************************************
-       01  CARD-RECORD.
-           05  CARD-NUM                          PIC X(16).
-           05  CARD-ACCT-ID                      PIC 9(11).
-      *    05  CARD-CVV-CD                       PIC 9(03).
-      *    ** REMOVED: PCI DSS 3.2 VIOLATION - CVV MUST NOT BE STORED
-      *    ** CVV should only be captured during transaction and
-      *    ** never persisted beyond authorization.
-           05  FILLER                            PIC X(03).
-           05  CARD-EMBOSSED-NAME                PIC X(50).
-           05  CARD-EXPIRAION-DATE               PIC X(10).
-           05  CARD-ACTIVE-STATUS                PIC X(01).
-           05  FILLER                            PIC X(59).
-      *
-      * Ver: CardDemo_v1.0-15-g27d6c6f-68 Date: 2022-07-19 23:16:00 CDT
-      *
+BadRequestError("Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CahJCagWNehh3cd1fUP9H'}")
