@@ -1,4 +1,4 @@
-name: G.Tx verify generated C#
+name: G.Tx verify generated output
 
 on:
   push:
@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-and-test:
+  build-and-gate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,29 +22,60 @@ jobs:
 
       - name: Generated inventory
         run: |
-          echo "Generated files:"; find gtx-out -type f | sort
-          echo; echo "T3 summary:"; cat gtx-out/T3_SUMMARY.md || true
+          find gtx-out -type f | sort
+          echo; cat gtx-out/db/SCHEMA_ANALYSIS.md || true
 
       - name: Build
         working-directory: gtx-out
         run: dotnet build GtxGenerated.csproj -c Release
 
-      - name: Test
+      - name: Test (if any test project exists)
         working-directory: gtx-out
-        run: dotnet test GtxGenerated.csproj -c Release --no-build --logger "console;verbosity=detailed"
+        run: |
+          if ls tests/*.cs >/dev/null 2>&1; then
+            dotnet test GtxGenerated.csproj -c Release --no-build --logger "console;verbosity=detailed"
+          else
+            echo "no tests yet - tests come from acceptance criteria in a later stage"
+          fi
 
-      # COMP-3 and zoned decimal are base-10. Binary floating point on a scaled
-      # field introduces rounding drift on money, so it is a hard failure.
-      - name: Gate - no float or double in generated records
+      # ---- MAINTAINABILITY GATES -------------------------------------------
+      # The whole premise is that we re-implement in C#, not translate COBOL.
+      # These make that a build failure rather than a promise. A .NET developer
+      # must never need to read COBOL to maintain the output.
+
+      - name: Gate - no COBOL storage vocabulary in generated code
+        working-directory: gtx-out
+        run: |
+          if grep -rniE '\b(PIC +[SX9]|COMP-3|PACKED-DECIMAL|RECLN|FILLER|OCCURS|REDEFINES)\b' src/ db/*.sql ; then
+            echo "::error::COBOL storage vocabulary found - the output is still COBOL-shaped"; exit 1
+          fi
+          echo "OK: no COBOL storage vocabulary"
+
+      - name: Gate - no byte-layout concepts
+        working-directory: gtx-out
+        run: |
+          if grep -rniE 'RecordLength|byte +offset|ReadOnlySpan<byte>|\boffset [0-9]+\b' src/ ; then
+            echo "::error::byte-layout concepts found - target is PostgreSQL, not fixed-length records"; exit 1
+          fi
+          echo "OK: no byte-layout concepts"
+
+      - name: Gate - no copybook-shaped type names
+        working-directory: gtx-out
+        run: |
+          # e.g. Cvtra05yRecord, Cocom01yRecord - a copybook name is not a domain name
+          if grep -rnE 'class +C[a-z]{4}[0-9]{2}[a-z]|record +C[a-z]{4}[0-9]{2}[a-z]' src/ ; then
+            echo "::error::copybook-derived type name found"; exit 1
+          fi
+          echo "OK: no copybook-shaped type names"
+
+      - name: Gate - no binary floating point on money
         working-directory: gtx-out
         run: |
           if grep -rnE '\b(double|float)\b' src/ ; then
-            echo "::error::binary floating point found in generated data layer"; exit 1
+            echo "::error::binary floating point found; money must be decimal/numeric"; exit 1
           fi
           echo "OK: no double/float"
 
-      # Guards the failure mode that produced PR #2: a provider error string
-      # written into source files instead of code.
       - name: Gate - no API error payloads committed
         working-directory: gtx-out
         run: |
