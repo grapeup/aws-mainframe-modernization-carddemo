@@ -71,10 +71,15 @@ jobs:
       - name: Gate - no binary floating point on money
         working-directory: gtx-out
         run: |
-          if grep -rnE '\b(double|float)\b' src/ ; then
-            echo "::error::binary floating point found; money must be decimal/numeric"; exit 1
+          # Strip comments first: the design model writes notes like
+          # "Money - decimal, never double", which are guidance, not violations.
+          # Only a declaration or cast counts.
+          if find src -name '*.cs' -print0 \
+               | xargs -0 sed -E 's://.*::; s:/\*.*\*/::' \
+               | grep -nE '(public|private|internal|protected)[[:space:]]+(double|float)[[:space:]]|\((double|float)\)' ; then
+            echo "::error::binary floating point declaration found; money must be decimal"; exit 1
           fi
-          echo "OK: no double/float"
+          echo "OK: no double/float declarations"
 
       - name: Gate - no API error payloads committed
         working-directory: gtx-out
