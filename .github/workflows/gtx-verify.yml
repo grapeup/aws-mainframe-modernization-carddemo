@@ -1,0 +1,54 @@
+name: G.Tx verify generated C#
+
+on:
+  push:
+    branches:
+      - 'gtx/**'
+    paths:
+      - 'gtx-out/**'
+      - '.github/workflows/gtx-verify.yml'
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Generated inventory
+        run: |
+          echo "Generated files:"; find gtx-out -type f | sort
+          echo; echo "T3 summary:"; cat gtx-out/T3_SUMMARY.md || true
+
+      - name: Build
+        working-directory: gtx-out
+        run: dotnet build GtxGenerated.csproj -c Release
+
+      - name: Test
+        working-directory: gtx-out
+        run: dotnet test GtxGenerated.csproj -c Release --no-build --logger "console;verbosity=detailed"
+
+      # COMP-3 and zoned decimal are base-10. Binary floating point on a scaled
+      # field introduces rounding drift on money, so it is a hard failure.
+      - name: Gate - no float or double in generated records
+        working-directory: gtx-out
+        run: |
+          if grep -rnE '\b(double|float)\b' src/ ; then
+            echo "::error::binary floating point found in generated data layer"; exit 1
+          fi
+          echo "OK: no double/float"
+
+      # Guards the failure mode that produced PR #2: a provider error string
+      # written into source files instead of code.
+      - name: Gate - no API error payloads committed
+        working-directory: gtx-out
+        run: |
+          if grep -rniE 'BadRequestError|invalid_request_error|credit balance is too low' . ; then
+            echo "::error::provider error payload found in generated output"; exit 1
+          fi
+          echo "OK: no error payloads"
