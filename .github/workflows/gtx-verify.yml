@@ -88,3 +88,20 @@ jobs:
             echo "::error::provider error payload found in generated output"; exit 1
           fi
           echo "OK: no error payloads"
+
+      # The most consequential gate: types are computed from the copybooks and the
+      # design step may not change them. Added after the model silently turned an
+      # alphanumeric TRAN-ID into a bigint, narrowed a varchar(50) to varchar(30),
+      # dropped a column and invented another - none of which the gates above see.
+      - name: Gate - type conformance against copybook facts
+        working-directory: gtx-out
+        run: |
+          if [ ! -f CONFORMANCE.md ]; then
+            echo "::error::CONFORMANCE.md missing - the conformance gate did not run"; exit 1
+          fi
+          cat CONFORMANCE.md
+          if grep -qE '^## (⛔ )?(Properties with no source field|Copybook fields not modelled)' CONFORMANCE.md; then
+            echo "::error::design has unsourced properties or unmodelled copybook fields - see CONFORMANCE.md"
+            exit 1
+          fi
+          echo "OK: every property traces to a copybook field and no field was dropped"
