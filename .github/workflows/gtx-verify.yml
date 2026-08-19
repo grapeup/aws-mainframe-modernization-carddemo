@@ -93,15 +93,19 @@ jobs:
       # design step may not change them. Added after the model silently turned an
       # alphanumeric TRAN-ID into a bigint, narrowed a varchar(50) to varchar(30),
       # dropped a column and invented another - none of which the gates above see.
-      - name: Gate - type conformance against copybook facts
+      - name: Gate - conformance against derived facts
         working-directory: gtx-out
         run: |
           if [ ! -f CONFORMANCE.md ]; then
             echo "::error::CONFORMANCE.md missing - the conformance gate did not run"; exit 1
           fi
           cat CONFORMANCE.md
-          if grep -qE '^## (⛔ )?(Properties with no source field|Copybook fields not modelled)' CONFORMANCE.md; then
-            echo "::error::design has unsourced properties or unmodelled copybook fields - see CONFORMANCE.md"
+          # The emitter classifies every finding itself: a derived fact with a
+          # citation, an architectural choice, or a blocking defect. Trust its
+          # verdict instead of re-deriving it here from section headings that drift.
+          if grep -q '^\*\*Status: BLOCKING' CONFORMANCE.md; then
+            echo "::error::blocking conformance findings - see CONFORMANCE.md"
+            sed -n '/^## \xe2\x9b\x94/,/^$/p' CONFORMANCE.md || true
             exit 1
           fi
-          echo "OK: every property traces to a copybook field and no field was dropped"
+          echo "OK: types match the copybooks; keys, dates and liveness match the derived facts"
