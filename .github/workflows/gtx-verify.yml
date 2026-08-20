@@ -12,6 +12,17 @@ on:
 jobs:
   build-and-gate:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: gtx
+          POSTGRES_DB: carddemo
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -46,7 +57,7 @@ jobs:
       - name: Gate - no COBOL storage vocabulary in generated code
         working-directory: gtx-out
         run: |
-          if grep -rniE '\b(PIC +[SX9]|COMP-3|PACKED-DECIMAL|RECLN|FILLER|OCCURS|REDEFINES)\b' src/ db/*.sql ; then
+          if grep -rniE '\b(PIC +[SX9]|COMP-3|PACKED-DECIMAL|RECLN|FILLER|OCCURS|REDEFINES)\b' src/ db/migrations/*.sql ; then
             echo "::error::COBOL storage vocabulary found - the output is still COBOL-shaped"; exit 1
           fi
           echo "OK: no COBOL storage vocabulary"
@@ -93,6 +104,49 @@ jobs:
       # design step may not change them. Added after the model silently turned an
       # alphanumeric TRAN-ID into a bigint, narrowed a varchar(50) to varchar(30),
       # dropped a column and invented another - none of which the gates above see.
+      - name: Gate - migration applies to a real PostgreSQL
+        working-directory: gtx-out/db
+        env:
+          FLYWAY_USER: postgres
+          FLYWAY_PASSWORD: gtx
+        run: |
+          ls -1 migrations/
+          # Generated SQL that has never been executed is not a deliverable. Apply
+          # it to a real PostgreSQL with the same tool that will apply it on the
+          # client's estate, then assert the schema history table records success.
+          docker run --rm --network host \
+            -v "$PWD/migrations:/flyway/sql" \
+            -e FLYWAY_USER -e FLYWAY_PASSWORD \
+            redgate/flyway:10 \
+            -url=jdbc:postgresql://localhost:5432/carddemo \
+            -locations=filesystem:/flyway/sql \
+            -validateOnMigrate=true \
+            -cleanDisabled=false \
+            migrate
+          PGPASSWORD=gtx psql -h localhost -U postgres -d carddemo -tAc \
+            "select version||' '||script||' '||success from flyway_schema_history order by installed_rank"
+          fail=$(PGPASSWORD=gtx psql -h localhost -U postgres -d carddemo -tAc \
+            "select count(*) from flyway_schema_history where success is false")
+          if [ "$fail" != "0" ]; then
+            echo "::error::a migration was recorded as failed"; exit 1
+          fi
+          # The tables the model declares must actually exist afterwards.
+          python3 - <<'EOF'
+          import json, pathlib, subprocess, sys
+          model = json.loads(pathlib.Path("../design/domain-model.json").read_text())
+          want = sorted({e["table"] for e in model.get("entities") or []})
+          out = subprocess.run(
+              ["psql", "-h", "localhost", "-U", "postgres", "-d", "carddemo", "-tAc",
+               "select table_name from information_schema.tables where table_schema='public'"],
+              capture_output=True, text=True, env={"PGPASSWORD": "gtx", "PATH": "/usr/bin:/bin"})
+          have = {l.strip() for l in out.stdout.splitlines() if l.strip()}
+          missing = [t for t in want if t not in have]
+          if missing:
+              print("::error::migration applied but these tables are absent: %s" % missing)
+              sys.exit(1)
+          print("OK: migration applied; all %d modelled tables exist" % len(want))
+          EOF
+
       - name: Gate - emitted code matches the model
         working-directory: gtx-out
         run: |
@@ -157,7 +211,7 @@ jobs:
                       errors.append("%s maps column %s more than once" % (ent, c))
 
           for table in re.findall(r"CREATE TABLE (\w+) \((.*?)\n\);",
-                                  pathlib.Path("db/schema.sql").read_text(), re.S):
+                                  "\n".join(f.read_text() for f in sorted(pathlib.Path("db/migrations").glob("V*.sql"))), re.S):
               cols = re.findall(r"^\s{4}(\w+)\s", table[1], re.M)
               for c in sorted({c for c in cols if cols.count(c) > 1}):
                   errors.append("table %s declares column %s more than once" % (table[0], c))
