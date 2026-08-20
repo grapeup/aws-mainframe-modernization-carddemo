@@ -189,8 +189,17 @@ jobs:
           errors = []
 
           # 1. every emitted type is in the model, and every model type is emitted
-          emitted = {f.stem for f in pathlib.Path("src").rglob("*.cs")
-                     if not f.stem.endswith("DbContext")}
+          # Only the Domain and Data projects are described by the model. The
+          # Application project holds the feature's services, repositories and
+          # DTOs, which are governed by the T5 traceability gate instead - scanning
+          # all of src/ here flagged fifteen legitimate files as orphans.
+          emitted = {f.stem
+                     for d in pathlib.Path("src").glob("*.Domain")
+                     for f in d.rglob("*.cs")}
+          emitted |= {f.stem
+                      for d in pathlib.Path("src").glob("*.Data")
+                      for f in d.rglob("*.cs")
+                      if not f.stem.endswith("DbContext")}
           for orphan in sorted(emitted - expected):
               errors.append("orphan file src/**/%s.cs is not in the model" % orphan)
           for missing in sorted(expected - emitted):
@@ -198,7 +207,8 @@ jobs:
 
           # 2. every property the model declares appears exactly once in its class
           for e in entities:
-              path = next(pathlib.Path("src").rglob(e["entity"] + ".cs"), None)
+              path = next((f for d in pathlib.Path("src").glob("*.Domain")
+                           for f in d.rglob(e["entity"] + ".cs")), None)
               if path is None:
                   continue
               body = path.read_text()
