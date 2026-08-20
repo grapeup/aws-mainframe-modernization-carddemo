@@ -93,15 +93,96 @@ jobs:
       # design step may not change them. Added after the model silently turned an
       # alphanumeric TRAN-ID into a bigint, narrowed a varchar(50) to varchar(30),
       # dropped a column and invented another - none of which the gates above see.
-      - name: Gate - type conformance against copybook facts
+      - name: Gate - emitted code matches the model
+        working-directory: gtx-out
+        run: |
+          python3 - <<'EOF'
+          import json, re, pathlib, sys
+
+          # The conformance gate checks the MODEL against the legacy facts. Nothing
+          # checked the CODE against the model, so a bad render passed silently: a
+          # relationship emitted beside the property holding the same column gave a
+          # junk `long Card`, and renamed entities left orphan .cs files behind
+          # because git_export never deletes what a previous run wrote. Both compiled.
+          model = json.loads(pathlib.Path("design/domain-model.json").read_text())
+          entities = model.get("entities") or []
+
+          expected = set()
+          for e in entities:
+              expected.add(e["entity"])
+              for o in e.get("owned") or []:
+                  expected.add(o["type"])
+              for x in e.get("enums") or []:
+                  expected.add(x["type"])
+
+          errors = []
+
+          # 1. every emitted type is in the model, and every model type is emitted
+          emitted = {f.stem for f in pathlib.Path("src").rglob("*.cs")
+                     if not f.stem.endswith("DbContext")}
+          for orphan in sorted(emitted - expected):
+              errors.append("orphan file src/**/%s.cs is not in the model" % orphan)
+          for missing in sorted(expected - emitted):
+              errors.append("model type %s was never emitted" % missing)
+
+          # 2. every property the model declares appears exactly once in its class
+          for e in entities:
+              path = next(pathlib.Path("src").rglob(e["entity"] + ".cs"), None)
+              if path is None:
+                  continue
+              body = path.read_text()
+              props = re.findall(r"public\s+[\w<>?.\[\]]+\s+(\w+)\s*{\s*get;", body)
+              want = []
+              if (e.get("key") or {}).get("property"):
+                  want.append(e["key"]["property"])
+              want += [p["property"] for p in (e.get("properties") or [])]
+              want += [o["property"] for o in (e.get("owned") or [])]
+              for w in want:
+                  n = props.count(w)
+                  if n == 0:
+                      errors.append("%s.%s is in the model but not in the class" % (e["entity"], w))
+                  elif n > 1:
+                      errors.append("%s.%s declared %d times" % (e["entity"], w, n))
+              for extra in set(props) - set(want) - {r.get("property") for r in (e.get("relationships") or [])}:
+                  errors.append("%s.%s is in the class but not in the model" % (e["entity"], extra))
+
+          # 3. no column mapped twice, in the DbContext or in the DDL
+          ctx = next(pathlib.Path("src").rglob("*DbContext.cs"), None)
+          if ctx:
+              for block in re.split(r"b\.Entity<", ctx.read_text())[1:]:
+                  ent = block.split(">")[0]
+                  cols = re.findall(r'HasColumnName\("([^"]+)"\)', block.split("b.Entity<")[0])
+                  dupes = {c for c in cols if cols.count(c) > 1}
+                  for c in sorted(dupes):
+                      errors.append("%s maps column %s more than once" % (ent, c))
+
+          for table in re.findall(r"CREATE TABLE (\w+) \((.*?)\n\);",
+                                  pathlib.Path("db/schema.sql").read_text(), re.S):
+              cols = re.findall(r"^\s{4}(\w+)\s", table[1], re.M)
+              for c in sorted({c for c in cols if cols.count(c) > 1}):
+                  errors.append("table %s declares column %s more than once" % (table[0], c))
+
+          if errors:
+              for e in errors:
+                  print("::error::%s" % e)
+              sys.exit(1)
+          print("OK: emitted code matches the model exactly - %d types, no orphans, "
+                "no duplicate properties or columns" % len(expected))
+          EOF
+
+      - name: Gate - conformance against derived facts
         working-directory: gtx-out
         run: |
           if [ ! -f CONFORMANCE.md ]; then
             echo "::error::CONFORMANCE.md missing - the conformance gate did not run"; exit 1
           fi
           cat CONFORMANCE.md
-          if grep -qE '^## (⛔ )?(Properties with no source field|Copybook fields not modelled)' CONFORMANCE.md; then
-            echo "::error::design has unsourced properties or unmodelled copybook fields - see CONFORMANCE.md"
+          # The emitter classifies every finding itself: a derived fact with a
+          # citation, an architectural choice, or a blocking defect. Trust its
+          # verdict instead of re-deriving it here from section headings that drift.
+          if grep -q '^\*\*Status: BLOCKING' CONFORMANCE.md; then
+            echo "::error::blocking conformance findings - see CONFORMANCE.md"
+            sed -n '/^## \xe2\x9b\x94/,/^$/p' CONFORMANCE.md || true
             exit 1
           fi
-          echo "OK: every property traces to a copybook field and no field was dropped"
+          echo "OK: types match the copybooks; keys, dates and liveness match the derived facts"
