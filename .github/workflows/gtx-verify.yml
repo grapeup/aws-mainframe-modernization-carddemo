@@ -45,31 +45,54 @@ jobs:
             echo "::endgroup::"
           done
 
-      - name: Test
+      - name: Test - unit (no database)
         working-directory: gtx-out
         run: |
-          projs=$(find tests -name '*.csproj' 2>/dev/null | sort || true)
+          projs=$(find tests -name '*.csproj' 2>/dev/null | grep -v IntegrationTests | sort || true)
           if [ -z "$projs" ]; then
-            echo "no test project yet - tests come from the acceptance criteria stage"
-            exit 0
+            echo "no unit test project yet"; exit 0
           fi
           rm -rf /tmp/trx && mkdir -p /tmp/trx
           for p in $projs; do
             dotnet test "$p" -c Release --logger "trx;LogFileName=$(basename $p).trx" \
               --results-directory /tmp/trx
           done
-          # A green run with zero tests looks exactly like a green run that verified
-          # something. Assert tests actually executed, or the suite is decoration.
           n=$(grep -ho 'total="[0-9]*"' /tmp/trx/*.trx | grep -o '[0-9]*' | paste -sd+ - | bc)
-          echo "tests executed: ${n:-0}"
+          echo "unit tests executed: ${n:-0}"
           if [ "${n:-0}" -lt 1 ]; then
-            echo "::error::a test project exists but no tests ran"; exit 1
+            echo "::error::a unit test project exists but no tests ran"; exit 1
           fi
 
-      # ---- MAINTAINABILITY GATES -------------------------------------------
-      # The whole premise is that we re-implement in C#, not translate COBOL.
-      # These make that a build failure rather than a promise. A .NET developer
-      # must never need to read COBOL to maintain the output.
+      - name: Test - integration (against the migrated PostgreSQL)
+        working-directory: gtx-out
+        env:
+          CARDDEMO_TEST_DB: "Host=localhost;Port=5432;Database=carddemo;Username=postgres;Password=gtx"
+        run: |
+          projs=$(find tests -name '*IntegrationTests.csproj' 2>/dev/null | sort || true)
+          if [ -z "$projs" ]; then
+            echo "no integration test project yet - persistence comes from the integration stage"
+            exit 0
+          fi
+          # The schema this runs against was applied by the Flyway step above, so the
+          # repositories are exercised against the real migrated database rather than
+          # an EF-generated approximation of it.
+          rm -rf /tmp/itrx && mkdir -p /tmp/itrx
+          for p in $projs; do
+            dotnet test "$p" -c Release --logger "trx;LogFileName=$(basename $p).trx" \
+              --results-directory /tmp/itrx
+          done
+          n=$(grep -ho 'total="[0-9]*"' /tmp/itrx/*.trx | grep -o '[0-9]*' | paste -sd+ - | bc)
+          skipped=$(grep -ho 'skipped="[0-9]*"' /tmp/itrx/*.trx | grep -o '[0-9]*' | paste -sd+ - | bc)
+          echo "integration tests executed: ${n:-0}, skipped: ${skipped:-0}"
+          if [ "${n:-0}" -lt 1 ]; then
+            echo "::error::an integration test project exists but no tests ran - the persistence is unproven"
+            exit 1
+          fi
+          # A skipped integration test reads exactly like a passing one in the summary.
+          if [ "${skipped:-0}" -gt 0 ]; then
+            echo "::error::${skipped} integration test(s) were skipped - a skipped test proves nothing"
+            exit 1
+          fi
 
       - name: Gate - no COBOL storage vocabulary in generated code
         working-directory: gtx-out
@@ -270,6 +293,31 @@ jobs:
           if bad:
               sys.exit(1)
           print("OK: all %d acceptance criteria traced to a test" % t["criteria_mapped"])
+          EOF
+
+      - name: Gate - every declared guarantee is proven
+        working-directory: gtx-out
+        run: |
+          if [ ! -f INTEGRATION_PROOF.json ]; then
+            echo "no integration layer on this branch - skipping"; exit 0
+          fi
+          cat INTEGRATION_PROOF.json
+          python3 - <<'EOF'
+          import json, pathlib, sys
+          t = json.loads(pathlib.Path("INTEGRATION_PROOF.json").read_text())
+          bad = list(t.get("problems") or [])
+          exp, got = t.get("requirements_expected") or 0, t.get("requirements_covered") or 0
+          if exp and got != exp:
+              bad.append("%d of %d declared guarantees covered by a test" % (got, exp))
+          if not t.get("di_extension") or not t.get("endpoint_extension"):
+              bad.append("the feature declares no composition extensions, so it cannot be "
+                         "plugged into the application")
+          for b in bad:
+              print("::error::%s" % b)
+          if bad:
+              sys.exit(1)
+          print("OK: %d guarantees proven; composes via %s / %s" % (
+              got, t["di_extension"], t["endpoint_extension"]))
           EOF
 
       - name: Gate - conformance against derived facts
