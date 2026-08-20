@@ -38,15 +38,32 @@ jobs:
 
       - name: Build
         working-directory: gtx-out
-        run: dotnet build GtxGenerated.csproj -c Release
+        run: |
+          for p in $(find . -name '*.csproj' | sort); do
+            echo "::group::build $p"
+            dotnet build "$p" -c Release
+            echo "::endgroup::"
+          done
 
-      - name: Test (if any test project exists)
+      - name: Test
         working-directory: gtx-out
         run: |
-          if ls tests/*.cs >/dev/null 2>&1; then
-            dotnet test GtxGenerated.csproj -c Release --no-build --logger "console;verbosity=detailed"
-          else
-            echo "no tests yet - tests come from acceptance criteria in a later stage"
+          projs=$(find tests -name '*.csproj' 2>/dev/null | sort || true)
+          if [ -z "$projs" ]; then
+            echo "no test project yet - tests come from the acceptance criteria stage"
+            exit 0
+          fi
+          rm -rf /tmp/trx && mkdir -p /tmp/trx
+          for p in $projs; do
+            dotnet test "$p" -c Release --logger "trx;LogFileName=$(basename $p).trx" \
+              --results-directory /tmp/trx
+          done
+          # A green run with zero tests looks exactly like a green run that verified
+          # something. Assert tests actually executed, or the suite is decoration.
+          n=$(grep -ho 'total="[0-9]*"' /tmp/trx/*.trx | grep -o '[0-9]*' | paste -sd+ - | bc)
+          echo "tests executed: ${n:-0}"
+          if [ "${n:-0}" -lt 1 ]; then
+            echo "::error::a test project exists but no tests ran"; exit 1
           fi
 
       # ---- MAINTAINABILITY GATES -------------------------------------------
@@ -222,6 +239,27 @@ jobs:
               sys.exit(1)
           print("OK: emitted code matches the model exactly - %d types, no orphans, "
                 "no duplicate properties or columns" % len(expected))
+          EOF
+
+      - name: Gate - every acceptance criterion is tested
+        working-directory: gtx-out
+        run: |
+          if [ ! -f TRACEABILITY.json ]; then
+            echo "no feature implementation on this branch - skipping"; exit 0
+          fi
+          cat TRACEABILITY.json
+          python3 - <<'EOF'
+          import json, pathlib, sys
+          t = json.loads(pathlib.Path("TRACEABILITY.json").read_text())
+          bad = t.get("problems") or []
+          if t.get("criteria_expected") and t["criteria_mapped"] != t["criteria_expected"]:
+              bad.append("%d of %d criteria mapped to a test" % (
+                  t["criteria_mapped"], t["criteria_expected"]))
+          for b in bad:
+              print("::error::%s" % b)
+          if bad:
+              sys.exit(1)
+          print("OK: all %d acceptance criteria traced to a test" % t["criteria_mapped"])
           EOF
 
       - name: Gate - conformance against derived facts
