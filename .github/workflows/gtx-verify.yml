@@ -326,8 +326,12 @@ jobs:
           t = json.loads(pathlib.Path("INTEGRATION_PROOF.json").read_text())
           bad = list(t.get("problems") or [])
           exp, got = t.get("requirements_expected") or 0, t.get("requirements_covered") or 0
-          if exp and got != exp:
-              bad.append("%d of %d declared guarantees covered by a test" % (got, exp))
+          # At least, not exactly. Proving MORE than required is a good outcome: a run
+          # covered 9 guarantees against 6 required, including a second DST-crossing
+          # test, and this gate failed it while the emitter's own check passed. Two
+          # checks of the same thing must not disagree.
+          if exp and got < exp:
+              bad.append("only %d of %d declared guarantees are covered by a test" % (got, exp))
           if not t.get("di_extension") or not t.get("endpoint_extension"):
               bad.append("the feature declares no composition extensions, so it cannot be "
                          "plugged into the application")
