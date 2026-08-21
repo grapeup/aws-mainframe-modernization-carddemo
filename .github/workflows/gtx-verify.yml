@@ -26,6 +26,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Stage self-report
+        run: |
+          # A generating stage is allowed to say it cannot satisfy a requirement
+          # with the inputs it was given, and to stop rather than invent a way
+          # around it. That is a first-class outcome, so it must be loud: this
+          # runs before anything else, and a blocked branch never reads green.
+          if [ -f gtx-out/STAGE_BLOCKED.md ]; then
+            echo "::group::STAGE_BLOCKED.md"
+            cat gtx-out/STAGE_BLOCKED.md
+            echo "::endgroup::"
+            reason=$(sed -n '/^## What is missing$/,/^## /p' gtx-out/STAGE_BLOCKED.md \
+                     | sed '1d;/^## /d;/^$/d' | head -3 | tr '\n' ' ')
+            owner=$(sed -n '/^## Which stage owns the fix$/,/^## /p' gtx-out/STAGE_BLOCKED.md \
+                    | sed '1d;/^## /d;/^$/d' | head -1 | tr -d '`')
+            echo "::error::stage blocked - owner:${owner:-unspecified} - ${reason:-no reason recorded}"
+            exit 1
+          fi
+          echo "no stage reported itself blocked"
+
       - name: Set up .NET
         uses: actions/setup-dotnet@v4
         with:
