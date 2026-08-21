@@ -1,0 +1,48 @@
+{
+  "feature": "Online Transaction Management",
+  "stage": "business-rules-only",
+  "status": "generated",
+  "criteria_expected": 12,
+  "criteria_mapped": 12,
+  "problems": [],
+  "service_class": "TransactionService",
+  "integration_requirements": [
+    "IUnitOfWork.BeginAsync must open a database transaction at SERIALIZABLE or REPEATABLE READ isolation level so that the MAX(id) read in GetMaxTransactionIdAsync is locked until CommitAsync. Without this, two concurrent callers can read the same max id and generate duplicate transaction IDs.",
+    "ITransactionRepository.GetMaxTransactionIdAsync must execute SELECT MAX(id) FROM transactions FOR UPDATE (or equivalent row-level lock) so the read is held within the transaction boundary opened by BeginAsync. The lock must not be released until CommitAsync or RollbackAsync.",
+    "IUnitOfWork.CommitAsync must atomically apply both the staged transaction insert (ITransactionRepository.StageAdd) and the staged account update (IAccountRepository.StageUpdate) in a single database transaction. If either fails, both must roll back.",
+    "If the system moves to high concurrency, the id-generation strategy should be replaced with a database sequence (NEXTVAL) to avoid the serialisation bottleneck of locking the max id. The current contract supports the legacy increment-by-one approach but the integration stage should document the throughput ceiling.",
+    "TransactionRecord.CardNumber is a mandatory foreign key to the card cross-references table. The database schema must enforce this constraint. The service populates it via repository lookup, but the integration layer must ensure the FK constraint exists."
+  ],
+  "envelope_repairs": [],
+  "namespace_canonicalised": [
+    [
+      "CardDemo.TransactionManagement",
+      "CardDemo.OnlineTransactionManagement"
+    ]
+  ],
+  "namespace_root": "CardDemo.OnlineTransactionManagement",
+  "relocated_contracts": [],
+  "error_codes": [
+    "AccountIdMissing",
+    "AccountNotFound",
+    "AccountNotActive",
+    "CardNotFound",
+    "InvalidAmountFormat",
+    "NothingToPay",
+    "PaymentNotConfirmed"
+  ],
+  "interfaces": [
+    "IAccountRepository",
+    "ICardRepository",
+    "ITransactionRepository",
+    "ITransactionService",
+    "IUnitOfWork"
+  ],
+  "reviewed_types": [
+    "Account",
+    "CardCrossReference",
+    "MerchantInfo",
+    "OnlineTransactionManagementDbContext",
+    "Transaction"
+  ]
+}

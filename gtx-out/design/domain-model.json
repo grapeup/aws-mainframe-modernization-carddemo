@@ -1,0 +1,353 @@
+{
+  "feature": "Online Transaction Management",
+  "excluded": [
+    {
+      "copybook": "COCOM01Y",
+      "reason": "CICS COMMAREA \u2014 transient inter-program communication state, not persisted business data"
+    },
+    {
+      "copybook": "COTTL01Y",
+      "reason": "Screen title / UI constants \u2014 presentation layer, not persisted"
+    },
+    {
+      "copybook": "CSDAT01Y",
+      "reason": "Working-storage date/time scratch area \u2014 runtime formatting helpers, not persisted"
+    },
+    {
+      "copybook": "CSMSG01Y",
+      "reason": "Common UI message constants \u2014 presentation layer, not persisted"
+    },
+    {
+      "copybook": "COCOM01Y.CDEMO-USRTYP-*",
+      "reason": "User type enum (Admin/User) belongs to authentication/session context, not to this feature's persisted domain. Noted for the authentication feature."
+    },
+    {
+      "copybook": "COCOM01Y.CDEMO-PGM-*",
+      "reason": "Program re-entry context enum \u2014 CICS navigation state, not persisted"
+    },
+    {
+      "copybook": "CCDA-SCREEN-TITLE.CCDA-THANK-YOU",
+      "reason": "Dead field \u2014 never referenced outside copybook"
+    },
+    {
+      "copybook": "WS-DATE-TIME.WS-CURTIME-MILSEC",
+      "reason": "Dead field \u2014 never referenced outside copybook"
+    },
+    {
+      "copybook": "WS-DATE-TIME.WS-CURTIME-N",
+      "reason": "Dead field \u2014 never referenced outside copybook"
+    },
+    {
+      "copybook": "WS-DATE-TIME.WS-TIMESTAMP-TM-HH",
+      "reason": "Dead field \u2014 never referenced outside copybook"
+    },
+    {
+      "copybook": "WS-DATE-TIME.WS-TIMESTAMP-TM-MM",
+      "reason": "Dead field \u2014 never referenced outside copybook"
+    },
+    {
+      "copybook": "WS-DATE-TIME.WS-TIMESTAMP-TM-SS",
+      "reason": "Dead field \u2014 never referenced outside copybook"
+    }
+  ],
+  "entities": [
+    {
+      "copybook": "CVACT01Y",
+      "entity": "Account",
+      "table": "accounts",
+      "summary": "A customer credit-card account with its balance, credit limits, and billing-cycle accumulators",
+      "key": {
+        "property": "Id",
+        "column": "id",
+        "from": "ACCT-ID",
+        "clr": "long",
+        "pg": "bigint",
+        "note": "PIC 9(11) \u2014 fits in bigint"
+      },
+      "properties": [
+        {
+          "property": "ActiveStatus",
+          "column": "active_status",
+          "from": "ACCT-ACTIVE-STATUS",
+          "clr": "string",
+          "pg": "char(1)",
+          "note": "Single character flag; see open_questions for possible enum"
+        },
+        {
+          "property": "CurrentBalance",
+          "column": "current_balance",
+          "from": "ACCT-CURR-BAL",
+          "clr": "decimal",
+          "pg": "numeric(12,2)",
+          "note": "Signed monetary value \u2014 decimal, never double"
+        },
+        {
+          "property": "CreditLimit",
+          "column": "credit_limit",
+          "from": "ACCT-CREDIT-LIMIT",
+          "clr": "decimal",
+          "pg": "numeric(12,2)",
+          "note": "Monetary value"
+        },
+        {
+          "property": "CashCreditLimit",
+          "column": "cash_credit_limit",
+          "from": "ACCT-CASH-CREDIT-LIMIT",
+          "clr": "decimal",
+          "pg": "numeric(12,2)",
+          "note": "Monetary value"
+        },
+        {
+          "property": "OpenDate",
+          "column": "open_date",
+          "from": "ACCT-OPEN-DATE",
+          "clr": "DateOnly",
+          "pg": "date",
+          "note": "Proven date field, format yyyy-MM-dd"
+        },
+        {
+          "property": "ExpirationDate",
+          "column": "expiration_date",
+          "from": "ACCT-EXPIRAION-DATE",
+          "clr": "DateOnly",
+          "pg": "date",
+          "note": "Proven date field, format yyyy-MM-dd; legacy typo 'EXPIRAION' corrected"
+        },
+        {
+          "property": "ReissueDate",
+          "column": "reissue_date",
+          "from": "ACCT-REISSUE-DATE",
+          "clr": "DateOnly",
+          "pg": "date",
+          "note": "Proven date field, format yyyy-MM-dd"
+        },
+        {
+          "property": "CurrentCycleCredit",
+          "column": "current_cycle_credit",
+          "from": "ACCT-CURR-CYC-CREDIT",
+          "clr": "decimal",
+          "pg": "numeric(12,2)",
+          "note": "Billing-cycle credit accumulator"
+        },
+        {
+          "property": "CurrentCycleDebit",
+          "column": "current_cycle_debit",
+          "from": "ACCT-CURR-CYC-DEBIT",
+          "clr": "decimal",
+          "pg": "numeric(12,2)",
+          "note": "Billing-cycle debit accumulator"
+        },
+        {
+          "property": "AddressZip",
+          "column": "address_zip",
+          "from": "ACCT-ADDR-ZIP",
+          "clr": "string",
+          "pg": "varchar(10)",
+          "note": "Alphanumeric zip/postal code"
+        },
+        {
+          "property": "GroupId",
+          "column": "group_id",
+          "from": "ACCT-GROUP-ID",
+          "clr": "string",
+          "pg": "varchar(10)",
+          "note": "Account grouping identifier"
+        }
+      ],
+      "owned": [],
+      "enums": [],
+      "relationships": [],
+      "_rels": []
+    },
+    {
+      "copybook": "CVACT03Y",
+      "entity": "CardCrossReference",
+      "table": "card_cross_references",
+      "summary": "Links a payment card number to its owning account and customer",
+      "key": {
+        "property": "CardNumber",
+        "column": "card_number",
+        "from": "XREF-CARD-NUM",
+        "clr": "string",
+        "pg": "varchar(16)",
+        "note": "PIC X(16) \u2014 natural key"
+      },
+      "properties": [
+        {
+          "property": "CustomerId",
+          "column": "customer_id",
+          "from": "XREF-CUST-ID",
+          "clr": "int",
+          "pg": "integer",
+          "note": "PIC 9(09) \u2014 references a customer record outside this feature scope"
+        },
+        {
+          "property": "AccountId",
+          "column": "account_id",
+          "from": "XREF-ACCT-ID",
+          "clr": "long",
+          "pg": "bigint",
+          "note": "FK to accounts.id"
+        }
+      ],
+      "owned": [],
+      "enums": [],
+      "relationships": [
+        {
+          "property": "Account",
+          "column": "account_id",
+          "from": "XREF-ACCT-ID",
+          "references": "accounts.id",
+          "type": "many-to-one",
+          "rationale": "Many cards can belong to one account; XREF-ACCT-ID is the proven FK from CARD-XREF-RECORD to ACCOUNT-RECORD"
+        }
+      ],
+      "_rels": []
+    },
+    {
+      "copybook": "CVTRA05Y",
+      "entity": "Transaction",
+      "table": "transactions",
+      "summary": "A single financial transaction (payment, purchase, etc.) against a card",
+      "key": {
+        "property": "Id",
+        "column": "id",
+        "from": "TRAN-ID",
+        "clr": "string",
+        "pg": "varchar(16)",
+        "note": "PIC X(16) \u2014 generated by incrementing the last transaction ID"
+      },
+      "properties": [
+        {
+          "property": "TypeCode",
+          "column": "type_code",
+          "from": "TRAN-TYPE-CD",
+          "clr": "string",
+          "pg": "char(2)",
+          "note": "e.g. '02' for bill payment; see open_questions for enum"
+        },
+        {
+          "property": "CategoryCode",
+          "column": "category_code",
+          "from": "TRAN-CAT-CD",
+          "clr": "int",
+          "pg": "smallint",
+          "note": "e.g. 2 for bill payment; see open_questions for enum"
+        },
+        {
+          "property": "Source",
+          "column": "source",
+          "from": "TRAN-SOURCE",
+          "clr": "string",
+          "pg": "varchar(10)",
+          "note": "Origination channel, e.g. 'POS TERM'"
+        },
+        {
+          "property": "Description",
+          "column": "description",
+          "from": "TRAN-DESC",
+          "clr": "string",
+          "pg": "varchar(100)",
+          "note": "Human-readable description, e.g. 'BILL PAYMENT - ONLINE'"
+        },
+        {
+          "property": "Amount",
+          "column": "amount",
+          "from": "TRAN-AMT",
+          "clr": "decimal",
+          "pg": "numeric(11,2)",
+          "note": "Monetary value \u2014 decimal, never double"
+        },
+        {
+          "property": "CardNumber",
+          "column": "card_number",
+          "from": "TRAN-CARD-NUM",
+          "clr": "string",
+          "pg": "varchar(16)",
+          "note": "FK to card_cross_references.card_number"
+        },
+        {
+          "property": "OriginatedAt",
+          "column": "originated_at",
+          "from": "TRAN-ORIG-TS",
+          "clr": "DateTimeOffset",
+          "pg": "timestamptz",
+          "note": "Proven timestamp field"
+        },
+        {
+          "property": "ProcessedAt",
+          "column": "processed_at",
+          "from": "TRAN-PROC-TS",
+          "clr": "DateTimeOffset",
+          "pg": "timestamptz",
+          "note": "Proven timestamp field"
+        }
+      ],
+      "owned": [
+        {
+          "property": "Merchant",
+          "type": "MerchantInfo",
+          "from_prefix": "TRAN-MERCHANT",
+          "rationale": "Four merchant fields (ID, name, city, zip) form a coherent concept always used together; modelling as a value object keeps the entity clean and communicates intent",
+          "properties": [
+            {
+              "property": "Id",
+              "column": "merchant_id",
+              "from": "TRAN-MERCHANT-ID",
+              "clr": "int",
+              "pg": "integer",
+              "note": "Merchant identifier"
+            },
+            {
+              "property": "Name",
+              "column": "merchant_name",
+              "from": "TRAN-MERCHANT-NAME",
+              "clr": "string",
+              "pg": "varchar(50)",
+              "note": "Merchant business name"
+            },
+            {
+              "property": "City",
+              "column": "merchant_city",
+              "from": "TRAN-MERCHANT-CITY",
+              "clr": "string",
+              "pg": "varchar(50)",
+              "note": "Merchant city"
+            },
+            {
+              "property": "ZipCode",
+              "column": "merchant_zip",
+              "from": "TRAN-MERCHANT-ZIP",
+              "clr": "string",
+              "pg": "varchar(10)",
+              "note": "Merchant postal code"
+            }
+          ]
+        }
+      ],
+      "enums": [],
+      "relationships": [
+        {
+          "property": "Card",
+          "column": "card_number",
+          "from": "TRAN-CARD-NUM",
+          "references": "card_cross_references.card_number",
+          "type": "many-to-one",
+          "rationale": "Each transaction is charged to one card; TRAN-CARD-NUM is the proven FK from TRAN-RECORD to CARD-XREF-RECORD. Account is reached via the multi-hop TRAN -> CardXref -> Account; no direct FK to accounts exists."
+        }
+      ],
+      "_rels": []
+    }
+  ],
+  "open_questions": [
+    "ACCT-ACTIVE-STATUS: The acceptance criteria check for 'active' status but the full set of valid values is not enumerated in the legacy code provided. Should we define an enum (e.g. Active/Inactive/Closed) or keep it as a constrained string until the full value set is confirmed?",
+    "TRAN-TYPE-CD: Only '02' (bill payment) is visible in the acceptance criteria. The complete set of type codes is needed to define a proper enum. Until then it is modelled as varchar(2).",
+    "TRAN-CAT-CD: Only category 2 is visible. Same situation as type code \u2014 needs the full value set before an enum is warranted.",
+    "TRAN-ID generation: The legacy system increments the last transaction ID (string-based sequential). In PostgreSQL this could be a SEQUENCE, a hi-lo strategy, or application-level logic. The concurrency and uniqueness guarantees need to be decided \u2014 a database sequence is safest but changes the format from the legacy zero-padded string.",
+    "TRAN-MERCHANT-ID: Modelled as bigint based on typical COBOL PIC 9 patterns, but the exact PICTURE clause for this field was not provided. If it is alphanumeric (PIC X), it should be varchar instead.",
+    "ACCT-CURR-BAL sign and precision: Modelled as numeric(13,2) to accommodate signed balances (the criteria reference zero and negative balances). The exact PICTURE (e.g. S9(11)V99) was not provided \u2014 confirm precision is sufficient.",
+    "XREF-CUST-ID references a Customer entity that is outside the scope of this feature. The FK constraint to a customers table should be added when that feature is modelled.",
+    "Account.AddressZip and Account.GroupId field lengths: Exact PIC clauses were not provided in the deterministic facts. Lengths of varchar(10) are reasonable defaults but should be confirmed.",
+    "The acceptance criteria mention balance adjustment logic that differs by transaction type (credits vs debits updating different cycle totals). The full rules for which type codes are credits vs debits need to be documented to implement the domain service correctly."
+  ]
+}

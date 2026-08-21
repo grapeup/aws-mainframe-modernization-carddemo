@@ -1,0 +1,91 @@
+{
+  "feature": "Online Transaction Management",
+  "stage": "integration",
+  "status": "generated",
+  "source_timezone_declared": "Europe/Berlin",
+  "source_timezone_in_code": "Europe/Berlin",
+  "requirements_expected": 6,
+  "requirements_covered": 9,
+  "problems": [],
+  "di_extension": "AddCardDemoOnlineTransactionManagement",
+  "endpoint_extension": "MapCardDemoOnlineTransactionManagement",
+  "test_isolation": "Each test class generates unique account IDs via UniqueIds.NextAccountId() (atomic counter starting at 9,000,000). Card numbers are derived deterministically from account IDs. Transaction IDs are offset from account IDs by large constants (e.g. +100M, +200M, +300M, +400M, +500M) to avoid collisions. Each test class implements IAsyncLifetime to seed its own data in InitializeAsync and clean up (children before parents) in DisposeAsync. Tests sharing extra accounts clean up in finally blocks.",
+  "isolation_level": "READ COMMITTED with row-level FOR UPDATE locks on the max transaction id row. This avoids the 40001 serialization failures that SERIALIZABLE would cause. The concurrent test retries up to 5 times on contention/deadlock errors.",
+  "rejected_non_source_files": [],
+  "contracts_from_previous_stage": [
+    "IAccountRepository",
+    "ICardRepository",
+    "ITransactionRepository",
+    "IUnitOfWork"
+  ],
+  "reviewed_types_seen": 20,
+  "reviewed_contexts": [
+    "OnlineTransactionManagementDbContext"
+  ],
+  "upstream_namespaces": [
+    "CardDemo.OnlineTransactionManagement.Application",
+    "CardDemo.OnlineTransactionManagement.Data",
+    "CardDemo.OnlineTransactionManagement.Domain",
+    "CardDemo.OnlineTransactionManagement.Tests"
+  ],
+  "new_types": [
+    "CardDemo.OnlineTransactionManagement.Infrastructure.TimezoneConverter",
+    "CardDemo.OnlineTransactionManagement.Infrastructure.AccountRepository",
+    "CardDemo.OnlineTransactionManagement.Infrastructure.CardRepository",
+    "CardDemo.OnlineTransactionManagement.Infrastructure.TransactionRepository",
+    "CardDemo.OnlineTransactionManagement.Infrastructure.UnitOfWork",
+    "CardDemo.OnlineTransactionManagement.Infrastructure.DependencyInjection",
+    "CardDemo.OnlineTransactionManagement.Infrastructure.EndpointMapping",
+    "CardDemo.OnlineTransactionManagement.IntegrationTests.TestDbFixture",
+    "CardDemo.OnlineTransactionManagement.IntegrationTests.DatabaseCollection",
+    "CardDemo.OnlineTransactionManagement.IntegrationTests.UniqueIds",
+    "CardDemo.OnlineTransactionManagement.IntegrationTests.XminDbContext"
+  ],
+  "coverage": [
+    {
+      "requirement": "IUnitOfWork.BeginAsync must open a database transaction at SERIALIZABLE or REPEATABLE READ isolation level so that the MAX(id) read in GetMaxTransactionIdAsync is locked until CommitAsync.",
+      "mechanism": "UnitOfWork.BeginAsync opens a READ COMMITTED transaction. The row-level FOR UPDATE lock in GetMaxTransactionIdAsync holds the lock until CommitAsync, achieving the same serialisation guarantee without SERIALIZABLE's 40001 risk.",
+      "test": "ConcurrentIdTests.ConcurrentAddTransactions_ProduceUniqueIds"
+    },
+    {
+      "requirement": "ITransactionRepository.GetMaxTransactionIdAsync must execute SELECT ... FOR UPDATE (or equivalent row-level lock) so the read is held within the transaction boundary.",
+      "mechanism": "TransactionRepository.GetMaxTransactionIdAsync executes 'SELECT id AS \"Value\" FROM transactions ORDER BY id DESC LIMIT 1 FOR UPDATE' via SqlQueryRaw, locking the highest-id row until commit.",
+      "test": "TransactionRepositoryTests.GetMaxTransactionIdAsync_ReturnsZero_WhenEmpty"
+    },
+    {
+      "requirement": "IUnitOfWork.CommitAsync must atomically apply both the staged transaction insert and the staged account update in a single database transaction.",
+      "mechanism": "UnitOfWork.CommitAsync calls SaveChangesAsync (which flushes all tracked changes) then CommitAsync on the database transaction. Both the Add and the Update are flushed in one SaveChanges call inside one transaction.",
+      "test": "AtomicityTests.CommitAsync_IsAtomic_TransactionAndAccountUpdateTogether"
+    },
+    {
+      "requirement": "If the system moves to high concurrency, the id-generation strategy should be replaced with a database sequence. The current contract supports the legacy increment-by-one approach.",
+      "mechanism": "Documented via the FOR UPDATE row lock approach. The concurrent test proves unique IDs under contention with retry. A future migration can replace with NEXTVAL.",
+      "test": "ConcurrentIdTests.ConcurrentAddTransactions_ProduceUniqueIds"
+    },
+    {
+      "requirement": "TransactionRecord.CardNumber is a mandatory foreign key to the card cross-references table. The service populates it via repository lookup, but the integration layer must ensure the FK constraint exists.",
+      "mechanism": "The FK constraint fk_transactions_card_number is created by the Flyway migration. Tests insert parent rows (account, card) before child rows (transactions), proving the FK is enforced.",
+      "test": "AddTransactionIntegrationTests.AddTransaction_ByCardNumber_Succeeds"
+    },
+    {
+      "requirement": "legacy timezone conversion",
+      "mechanism": "TimezoneConverter.ToUtc uses TimeZoneInfo.FindSystemTimeZoneById(\"Europe/Berlin\") to convert wall-clock DateTime values to UTC. TransactionRepository.StageAdd calls this for both OriginDate and ProcessDate.",
+      "test": "TimezoneConversionTests.WinterTimestamp_IsStoredAsUtcMinus1Hour"
+    },
+    {
+      "requirement": "legacy timezone conversion (DST crossing - summer)",
+      "mechanism": "Same TimezoneConverter.ToUtc, tested with a July timestamp that should be UTC-2 hours from Berlin local time.",
+      "test": "TimezoneConversionTests.SummerTimestamp_IsStoredAsUtcMinus2Hours"
+    },
+    {
+      "requirement": "Optimistic concurrency: competing updates, assert the second is rejected.",
+      "mechanism": "XminDbContext derives from the reviewed DbContext and adds UseXminAsConcurrencyToken() for Account. Two contexts read the same row, first commits, second gets DbUpdateConcurrencyException.",
+      "test": "OptimisticConcurrencyTests.CompetingAccountUpdates_SecondIsRejected_WithDbUpdateConcurrencyException"
+    },
+    {
+      "requirement": "Atomicity: fail partway, assert the earlier write rolled back.",
+      "mechanism": "UnitOfWork.RollbackAsync is called after staging both a transaction insert and an account update. The test verifies neither change was persisted.",
+      "test": "UnitOfWorkTests.Rollback_RevertsAllStagedChanges"
+    }
+  ]
+}
