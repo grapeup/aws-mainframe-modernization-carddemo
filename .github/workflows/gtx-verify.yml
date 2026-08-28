@@ -1,0 +1,383 @@
+name: G.Tx verify generated output
+
+on:
+  push:
+    branches:
+      - 'gtx/**'
+    paths:
+      - 'gtx-out/**'
+      - '.github/workflows/gtx-verify.yml'
+  workflow_dispatch:
+
+jobs:
+  build-and-gate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: gtx
+          POSTGRES_DB: carddemo
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stage self-report
+        run: |
+          # A generating stage is allowed to say it cannot satisfy a requirement
+          # with the inputs it was given, and to stop rather than invent a way
+          # around it. That is a first-class outcome, so it must be loud: this
+          # runs before anything else, and a blocked branch never reads green.
+          if [ -f gtx-out/STAGE_BLOCKED.md ]; then
+            echo "::group::STAGE_BLOCKED.md"
+            cat gtx-out/STAGE_BLOCKED.md
+            echo "::endgroup::"
+            reason=$(sed -n '/^## What is missing$/,/^## /p' gtx-out/STAGE_BLOCKED.md \
+                     | sed '1d;/^## /d;/^$/d' | head -3 | tr '\n' ' ')
+            owner=$(sed -n '/^## Which stage owns the fix$/,/^## /p' gtx-out/STAGE_BLOCKED.md \
+                    | sed '1d;/^## /d;/^$/d' | head -1 | tr -d '`')
+            echo "::error::stage blocked - owner:${owner:-unspecified} - ${reason:-no reason recorded}"
+            exit 1
+          fi
+          echo "no stage reported itself blocked"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Generated inventory
+        run: |
+          find gtx-out -type f -not -path '*/target/*' | sort
+          echo; cat gtx-out/db/SCHEMA_ANALYSIS.md || true
+
+      - name: Apply schema migration to PostgreSQL
+        working-directory: gtx-out/db
+        env:
+          FLYWAY_USER: postgres
+          FLYWAY_PASSWORD: gtx
+        run: |
+          ls -1 migrations/
+          # Generated SQL that has never been executed is not a deliverable. Apply
+          # it to a real PostgreSQL with the same tool that will apply it on the
+          # client's estate, then assert the schema history table records success.
+          docker run --rm --network host \
+            -v "$PWD/migrations:/flyway/sql" \
+            -e FLYWAY_USER -e FLYWAY_PASSWORD \
+            redgate/flyway:10 \
+            -url=jdbc:postgresql://localhost:5432/carddemo \
+            -locations=filesystem:/flyway/sql \
+            -validateOnMigrate=true \
+            -cleanDisabled=false \
+            migrate
+          PGPASSWORD=gtx psql -h localhost -U postgres -d carddemo -tAc \
+            "select version||' '||script||' '||success from flyway_schema_history order by installed_rank"
+          fail=$(PGPASSWORD=gtx psql -h localhost -U postgres -d carddemo -tAc \
+            "select count(*) from flyway_schema_history where success is false")
+          if [ "$fail" != "0" ]; then
+            echo "::error::a migration was recorded as failed"; exit 1
+          fi
+          # The tables the model declares must actually exist afterwards.
+          python3 - <<'EOF'
+          import json, pathlib, subprocess, sys
+          model = json.loads(pathlib.Path("../design/domain-model.json").read_text())
+          want = sorted({e["table"] for e in model.get("entities") or []})
+          out = subprocess.run(
+              ["psql", "-h", "localhost", "-U", "postgres", "-d", "carddemo", "-tAc",
+               "select table_name from information_schema.tables where table_schema='public'"],
+              capture_output=True, text=True, env={"PGPASSWORD": "gtx", "PATH": "/usr/bin:/bin"})
+          have = {l.strip() for l in out.stdout.splitlines() if l.strip()}
+          missing = [t for t in want if t not in have]
+          if missing:
+              print("::error::migration applied but these tables are absent: %s" % missing)
+              sys.exit(1)
+          print("OK: migration applied; all %d modelled tables exist" % len(want))
+          EOF
+
+      - name: Build
+        working-directory: gtx-out
+        run: mvn -B -ntp -DskipTests package
+
+      - name: Test - unit and integration
+        working-directory: gtx-out
+        env:
+          # Surefire runs *Test with no database. Failsafe runs *IT against the
+          # PostgreSQL the Flyway step above just migrated, so the persistence is
+          # exercised against the real schema rather than an approximation of it.
+          CARDDEMO_TEST_DB: "jdbc:postgresql://localhost:5432/carddemo?user=postgres&password=gtx"
+        run: mvn -B -ntp verify
+
+      - name: Gate - the unit suite actually ran
+        working-directory: gtx-out
+        run: |
+          python3 - <<'EOF'
+          import glob, sys, xml.etree.ElementTree as ET
+          files = glob.glob("target/surefire-reports/TEST-*.xml")
+          if not files:
+              print("no unit test reports - no unit test class exists yet")
+              sys.exit(0)
+          total = skipped = 0
+          for f in files:
+              r = ET.parse(f).getroot()
+              total += int(r.get("tests") or 0)
+              skipped += int(r.get("skipped") or 0)
+          print("unit tests executed: %d, skipped: %d" % (total, skipped))
+          if total - skipped < 1:
+              print("::error::unit test classes exist but no test actually ran")
+              sys.exit(1)
+          EOF
+
+      - name: Gate - the integration suite actually ran, and nothing was skipped
+        working-directory: gtx-out
+        run: |
+          python3 - <<'EOF'
+          import glob, sys, xml.etree.ElementTree as ET
+          files = glob.glob("target/failsafe-reports/TEST-*.xml")
+          if not files:
+              # Before the integration stage there is no persistence, so this is
+              # the correct state rather than a missing suite.
+              its = glob.glob("src/test/java/**/*IT.java", recursive=True)
+              if its:
+                  print("::error::%d *IT source file(s) exist but Failsafe produced no "
+                        "reports - the persistence is unproven" % len(its))
+                  sys.exit(1)
+              print("no integration layer on this branch - skipping")
+              sys.exit(0)
+          total = skipped = 0
+          for f in files:
+              r = ET.parse(f).getroot()
+              total += int(r.get("tests") or 0)
+              skipped += int(r.get("skipped") or 0)
+          print("integration tests executed: %d, skipped: %d" % (total, skipped))
+          if total < 1:
+              print("::error::an integration suite exists but no test ran - the "
+                    "persistence is unproven")
+              sys.exit(1)
+          # A skipped integration test reads exactly like a passing one in the
+          # summary, which is the false confidence that stage exists to remove.
+          if skipped > 0:
+              print("::error::%d integration test(s) were skipped - a skipped test "
+                    "proves nothing" % skipped)
+              sys.exit(1)
+          EOF
+
+      - name: Gate - no COBOL storage vocabulary in generated code
+        working-directory: gtx-out
+        run: |
+          if grep -rniE '\b(PIC +[SX9]|COMP-3|PACKED-DECIMAL|RECLN|OCCURS|REDEFINES)\b' src/ db/migrations/*.sql ; then
+            echo "::error::COBOL storage vocabulary found - the output is still COBOL-shaped"; exit 1
+          fi
+          echo "OK: no COBOL storage vocabulary"
+
+      - name: Gate - no byte-layout concepts
+        working-directory: gtx-out
+        run: |
+          if grep -rniE 'recordLength|byte +offset|\boffset [0-9]+\b|ByteBuffer' src/ ; then
+            echo "::error::byte-layout concepts found - target is PostgreSQL, not fixed-length records"; exit 1
+          fi
+          echo "OK: no byte-layout concepts"
+
+      - name: Gate - no copybook-shaped type names
+        working-directory: gtx-out
+        run: |
+          # e.g. Cvtra05yRecord, Cocom01yRecord - a copybook name is not a domain name
+          if grep -rnE '(class|record|interface) +C[a-z]{4}[0-9]{2}[a-z]' src/ ; then
+            echo "::error::copybook-derived type name found"; exit 1
+          fi
+          echo "OK: no copybook-shaped type names"
+
+      - name: Gate - no binary floating point on money
+        working-directory: gtx-out
+        run: |
+          # Strip comments first: the design model writes notes like
+          # "money - BigDecimal, never double", which are guidance, not violations.
+          # Only a declaration or a cast counts.
+          if find src -name '*.java' -print0 \
+               | xargs -0 sed -E 's://.*::; s:/\*.*\*/::' \
+               | grep -nE '(private|public|protected|static|final)[[:space:]]+(double|float|Double|Float)[[:space:]]+[A-Za-z_]|\((double|float|Double|Float)\)[[:space:]]*[A-Za-z_(]' ; then
+            echo "::error::binary floating point declaration or cast found; money must be BigDecimal"; exit 1
+          fi
+          echo "OK: no double/float declarations"
+
+      - name: Gate - Hibernate is not generating the schema
+        working-directory: gtx-out
+        run: |
+          # Flyway owns the schema and has already applied it. ddl-auto would let a
+          # green run mean "Hibernate built its own idea of the tables", which is
+          # exactly the parity the migration exists to guarantee.
+          if grep -rniE 'ddl-auto[[:space:]]*[=:][[:space:]]*(create|create-drop|update)|hbm2ddl' src/ ; then
+            echo "::error::Hibernate schema generation is enabled - Flyway owns the schema"; exit 1
+          fi
+          # xmin is a hidden system column. Hibernate has no equivalent of EF Core's
+          # concurrency token, so mapping it makes every write fail with 42703.
+          if grep -rniE '@Column\([^)]*"xmin"|private[[:space:]]+[A-Za-z_<>]+[[:space:]]+xmin\b' src/ ; then
+            echo "::error::xmin mapped as an entity field - use an @Version column the migration declares"; exit 1
+          fi
+          echo "OK: Flyway owns the schema; no xmin mapping"
+
+      - name: Gate - no API error payloads committed
+        working-directory: gtx-out
+        run: |
+          if grep -rniE 'BadRequestError|invalid_request_error|credit balance is too low' . --exclude-dir=target ; then
+            echo "::error::provider error payload found in generated output"; exit 1
+          fi
+          echo "OK: no error payloads"
+
+      # The most consequential gate: types are computed from the copybooks and the
+      # design step may not change them. Added after the model silently turned an
+      # alphanumeric TRAN-ID into a bigint, narrowed a varchar(50) to varchar(30),
+      # dropped a column and invented another - none of which the gates above see.
+      - name: Gate - emitted code matches the model
+        working-directory: gtx-out
+        run: |
+          python3 - <<'EOF'
+          import json, re, pathlib, sys
+
+          # The conformance gate checks the MODEL against the legacy facts. Nothing
+          # checked the CODE against the model, so a bad render passed silently: a
+          # relationship emitted beside the field holding the same column gave a
+          # junk `Long card`, and renamed entities left orphan .java files behind
+          # because git_export never deletes what a previous run wrote.
+          model = json.loads(pathlib.Path("design/domain-model.json").read_text())
+          entities = model.get("entities") or []
+
+          expected = set()
+          for e in entities:
+              expected.add(e["entity"])
+              for o in e.get("owned") or []:
+                  expected.add(o["type"])
+              for x in e.get("enums") or []:
+                  expected.add(x["type"])
+                  # Each enum also gets the AttributeConverter that makes it
+                  # persistable; it is generated, not designed, so the model does
+                  # not list it.
+                  expected.add(x["type"] + "Converter")
+
+          errors = []
+
+          # 1. every emitted domain type is in the model, and every model type is
+          # emitted. Only the domain package is described by the model - the
+          # application and infrastructure packages are governed by the T5
+          # traceability gate and the T6 proof gate instead.
+          emitted = {f.stem for f in pathlib.Path("src/main/java").rglob("domain/*.java")}
+          for orphan in sorted(emitted - expected):
+              errors.append("orphan file domain/%s.java is not in the model" % orphan)
+          for missing in sorted(expected - emitted):
+              errors.append("model type %s was never emitted" % missing)
+
+          # 2. every field the model declares appears exactly once in its class
+          for e in entities:
+              path = next(pathlib.Path("src/main/java").rglob("domain/%s.java" % e["entity"]), None)
+              if path is None:
+                  continue
+              body = path.read_text()
+              fields = re.findall(r"private\s+[\w<>\[\].]+\s+(\w+)\s*;", body)
+              want = []
+              if (e.get("key") or {}).get("property"):
+                  want.append(e["key"]["property"])
+              want += [p["property"] for p in (e.get("properties") or [])]
+              want += [o["property"] for o in (e.get("owned") or [])]
+              for w in want:
+                  n = fields.count(w)
+                  if n == 0:
+                      errors.append("%s.%s is in the model but not in the class" % (e["entity"], w))
+                  elif n > 1:
+                      errors.append("%s.%s declared %d times" % (e["entity"], w, n))
+              # A relationship the emitter collapsed as a duplicate column is
+              # legitimately absent, so relationships are allowed but not required.
+              allowed = set(want) | {r.get("property") for r in (e.get("relationships") or [])}
+              for extra in sorted(set(fields) - allowed):
+                  errors.append("%s.%s is in the class but not in the model" % (e["entity"], extra))
+
+              # 3. no column mapped twice within one entity
+              cols = re.findall(r'@Column\(\s*name\s*=\s*"((?:[^"\\]|\\.)*)"', body)
+              for c in sorted({c for c in cols if cols.count(c) > 1}):
+                  errors.append("%s maps column %s more than once" % (e["entity"], c))
+
+          # 4. no column declared twice in the migration
+          sql = "\n".join(f.read_text() for f in sorted(pathlib.Path("db/migrations").glob("V*.sql")))
+          for table in re.findall(r"CREATE TABLE (\"?\w+\"?) \((.*?)\n\);", sql, re.S):
+              cols = re.findall(r"^\s{4}(\"?\w+\"?)\s", table[1], re.M)
+              for c in sorted({c for c in cols if cols.count(c) > 1}):
+                  errors.append("table %s declares column %s more than once" % (table[0], c))
+
+          if errors:
+              for e in errors:
+                  print("::error::%s" % e)
+              sys.exit(1)
+          print("OK: emitted code matches the model exactly - %d types, no orphans, "
+                "no duplicate fields or columns" % len(expected))
+          EOF
+
+      - name: Gate - every acceptance criterion is tested
+        working-directory: gtx-out
+        run: |
+          if [ ! -f TRACEABILITY.json ]; then
+            echo "no feature implementation on this branch - skipping"; exit 0
+          fi
+          cat TRACEABILITY.json
+          python3 - <<'EOF'
+          import json, pathlib, sys
+          t = json.loads(pathlib.Path("TRACEABILITY.json").read_text())
+          bad = t.get("problems") or []
+          if t.get("criteria_expected") and t["criteria_mapped"] != t["criteria_expected"]:
+              bad.append("%d of %d criteria mapped to a test" % (
+                  t["criteria_mapped"], t["criteria_expected"]))
+          for b in bad:
+              print("::error::%s" % b)
+          if bad:
+              sys.exit(1)
+          print("OK: all %d acceptance criteria traced to a test" % t["criteria_mapped"])
+          EOF
+
+      - name: Gate - every declared guarantee is proven
+        working-directory: gtx-out
+        run: |
+          if [ ! -f INTEGRATION_PROOF.json ]; then
+            echo "no integration layer on this branch - skipping"; exit 0
+          fi
+          cat INTEGRATION_PROOF.json
+          python3 - <<'EOF'
+          import json, pathlib, sys
+          t = json.loads(pathlib.Path("INTEGRATION_PROOF.json").read_text())
+          bad = list(t.get("problems") or [])
+          exp, got = t.get("requirements_expected") or 0, t.get("requirements_covered") or 0
+          # At least, not exactly. Proving MORE than required is a good outcome: a run
+          # covered 9 guarantees against 6 required, including a second DST-crossing
+          # test, and this gate failed it while the emitter's own check passed. Two
+          # checks of the same thing must not disagree.
+          if exp and got < exp:
+              bad.append("only %d of %d declared guarantees are covered by a test" % (got, exp))
+          if not t.get("di_extension") or not t.get("endpoint_extension"):
+              bad.append("the feature declares no composition classes, so it cannot be "
+                         "plugged into the application")
+          for b in bad:
+              print("::error::%s" % b)
+          if bad:
+              sys.exit(1)
+          print("OK: %d guarantees proven; composes via %s / %s" % (
+              got, t["di_extension"], t["endpoint_extension"]))
+          EOF
+
+      - name: Gate - conformance against derived facts
+        working-directory: gtx-out
+        run: |
+          if [ ! -f CONFORMANCE.md ]; then
+            echo "::error::CONFORMANCE.md missing - the conformance gate did not run"; exit 1
+          fi
+          cat CONFORMANCE.md
+          # The emitter classifies every finding itself: a derived fact with a
+          # citation, an architectural choice, or a blocking defect. Trust its
+          # verdict instead of re-deriving it here from section headings that drift.
+          if grep -q '^\*\*Status: BLOCKING' CONFORMANCE.md; then
+            echo "::error::blocking conformance findings - see CONFORMANCE.md"
+            sed -n '/^## \xe2\x9b\x94/,/^$/p' CONFORMANCE.md || true
+            exit 1
+          fi
+          echo "OK: types match the copybooks; keys, dates and liveness match the derived facts"
