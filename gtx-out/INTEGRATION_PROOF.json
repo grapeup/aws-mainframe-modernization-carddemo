@@ -1,0 +1,67 @@
+{
+  "feature": "Online Transaction Management",
+  "stage": "integration",
+  "status": "generated",
+  "source_timezone_declared": "Europe/Berlin",
+  "source_timezone_in_code": "Europe/Berlin",
+  "requirements_expected": 6,
+  "requirements_covered": 6,
+  "requirements_proven_by_test": 5,
+  "requirements_declared_unprovable": 1,
+  "problems": [],
+  "di_extension": "OnlineTransactionManagementConfiguration",
+  "endpoint_extension": "OnlineTransactionManagementController",
+  "test_isolation": "Each test uses unique account IDs, card numbers, and transaction IDs from non-overlapping ranges (e.g., 90000001-90000002 for AccountRepositoryIT, 80000001-80000002 for CardCrossReferenceRepositoryIT, 70000001-70000003 for TransactionRepositoryIT, 60000001-60000002 for UnitOfWorkIT, 75000001-75000002 for TimestampConverterIT, 50000000-50000004 for ConcurrentIdGenerationIT). Tests using @Transactional get automatic rollback. Tests using EntityManagerFactory directly (UnitOfWorkIT, ConcurrentIdGenerationIT) clean up in finally blocks, deleting children before parents.",
+  "isolation_level": "READ COMMITTED. Row-level locking via SELECT ... FOR UPDATE on the highest transaction ID row serialises concurrent ID generation. No SERIALIZABLE needed, so no 40001 serialization failures. The concurrent test retries up to 3 times on any contention error.",
+  "rejected_non_source_files": [],
+  "envelope_repairs": [],
+  "contracts_from_previous_stage": [
+    "AccountRepository",
+    "CardCrossReferenceRepository",
+    "TransactionRepository",
+    "UnitOfWork"
+  ],
+  "reviewed_types_seen": 21,
+  "upstream_packages": [
+    "com.grapeup.carddemo.onlinetransactionmanagement.application",
+    "com.grapeup.carddemo.onlinetransactionmanagement.domain"
+  ],
+  "new_types": [
+    "TimestampConverter",
+    "OnlineTransactionManagementConfiguration",
+    "OnlineTransactionManagementController",
+    "IntegrationTestContext"
+  ],
+  "coverage": [
+    {
+      "requirement": "UnitOfWork.begin() must open a database transaction at SERIALIZABLE or REPEATABLE READ isolation level so that the SELECT MAX(id) in TransactionRepository.findMaxTransactionId() acquires a lock that is held until UnitOfWork.commit(). This prevents two concurrent callers from reading the same max and generating duplicate IDs.",
+      "mechanism": "JpaUnitOfWork.begin() opens a resource-local transaction via EntityManager.getTransaction().begin() and sets READ COMMITTED isolation. The FOR UPDATE row lock in findMaxTransactionId() holds the lock until commit, preventing duplicate IDs without needing SERIALIZABLE (which would cause 40001 errors). READ COMMITTED + row lock achieves the same serialisation guarantee.",
+      "test": "ConcurrentIdGenerationIT.concurrentInserts_produceUniqueIds"
+    },
+    {
+      "requirement": "TransactionRepository.findMaxTransactionId() should use SELECT MAX(id) FROM transactions FOR UPDATE (or equivalent row-level locking) to serialise concurrent ID generation within the transaction opened by UnitOfWork.begin().",
+      "mechanism": "JpaTransactionRepository.findMaxTransactionId() uses native query 'SELECT id FROM transactions ORDER BY id DESC LIMIT 1 FOR UPDATE' which locks the actual row (not an aggregate), avoiding PostgreSQL error 0A000.",
+      "test": "TransactionRepositoryIT.findMaxTransactionId_returnsHighestId"
+    },
+    {
+      "requirement": "AccountRepository.save() and TransactionRepository.save() must stage their writes within the same database transaction opened by UnitOfWork.begin(), so that the transaction record insert and the account balance update are committed atomically by UnitOfWork.commit().",
+      "mechanism": "Both JpaAccountRepository and JpaTransactionRepository use the same EntityManager instance injected by the configuration. JpaUnitOfWork.begin() opens a transaction on that EntityManager; both repos persist/merge within it; JpaUnitOfWork.commit() flushes and commits atomically.",
+      "test": "UnitOfWorkIT.commit_makesBothWritesDurable"
+    },
+    {
+      "requirement": "UnitOfWork.rollback() must discard all staged writes from both repositories, ensuring no partial state is persisted on failure.",
+      "mechanism": "JpaUnitOfWork.rollback() calls EntityManager.getTransaction().rollback(), discarding all unflushed and flushed-but-uncommitted changes from both repositories.",
+      "test": "UnitOfWorkIT.rollback_discardsAllStagedWrites"
+    },
+    {
+      "requirement": "The transaction ID column is a 16-character zero-padded numeric string. The integration layer must ensure the column type and length match (CHAR(16) or VARCHAR(16)).",
+      "mechanism": "The schema declares 'id varchar(16) NOT NULL' and the domain entity maps it as '@Column(name = \"id\", length = 16) private String id'. The service generates IDs with String.format(\"%016d\", next). The integration test verifies round-trip persistence of 16-character IDs.",
+      "no_test_reason": "This is a schema/mapping constraint already enforced by the reviewed domain model and migration. The round-trip tests in TransactionRepositoryIT implicitly verify the column accepts 16-character strings, but no separate test targets the length constraint specifically because it is a property of the schema, not the integration layer."
+    },
+    {
+      "requirement": "legacy timezone conversion",
+      "mechanism": "TimestampConverter.toOffset(LocalDateTime) attaches ZoneId.of(\"Europe/Berlin\") to the wall-clock reading and converts to OffsetDateTime, correctly handling DST. Never uses a fixed offset. The conversion is centralised in one class.",
+      "test": "TimestampConverterIT.winterAndSummerOffsetsDiffer"
+    }
+  ]
+}

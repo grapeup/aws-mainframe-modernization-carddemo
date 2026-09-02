@@ -1,0 +1,84 @@
+{
+  "feature": "Online Transaction Management",
+  "stage": "business-rules-only",
+  "status": "generated",
+  "criteria_expected": 12,
+  "criteria_mapped": 12,
+  "problems": [],
+  "service_class": "TransactionService",
+  "integration_requirements": [
+    "UnitOfWork.begin() must open a database transaction at SERIALIZABLE or REPEATABLE READ isolation level so that the SELECT MAX(id) in TransactionRepository.findMaxTransactionId() acquires a lock that is held until UnitOfWork.commit(). This prevents two concurrent callers from reading the same max and generating duplicate IDs.",
+    "TransactionRepository.findMaxTransactionId() should use SELECT MAX(id) FROM transactions FOR UPDATE (or equivalent row-level locking) to serialise concurrent ID generation within the transaction opened by UnitOfWork.begin().",
+    "AccountRepository.save() and TransactionRepository.save() must stage their writes within the same database transaction opened by UnitOfWork.begin(), so that the transaction record insert and the account balance update are committed atomically by UnitOfWork.commit().",
+    "UnitOfWork.rollback() must discard all staged writes from both repositories, ensuring no partial state is persisted on failure.",
+    "The transaction ID column is a 16-character zero-padded numeric string. The integration layer must ensure the column type and length match (CHAR(16) or VARCHAR(16))."
+  ],
+  "envelope_repairs": [],
+  "package_canonicalised": [],
+  "package_root": "com.grapeup.carddemo.onlinetransactionmanagement",
+  "application_package": "com.grapeup.carddemo.onlinetransactionmanagement.application",
+  "relocated_contracts": [
+    {
+      "from": "src/main/java/com/grapeup/carddemo/onlinetransactionmanagement/application/TransactionError.java",
+      "to": "src/main/java/com/grapeup/carddemo/onlinetransactionmanagement/application/TransactionError.java"
+    },
+    {
+      "from": "src/main/java/com/grapeup/carddemo/onlinetransactionmanagement/application/AddTransactionInput.java",
+      "to": "src/main/java/com/grapeup/carddemo/onlinetransactionmanagement/application/AddTransactionInput.java"
+    },
+    {
+      "from": "src/main/java/com/grapeup/carddemo/onlinetransactionmanagement/application/AddTransactionResult.java",
+      "to": "src/main/java/com/grapeup/carddemo/onlinetransactionmanagement/application/AddTransactionResult.java"
+    },
+    {
+      "from": "src/main/java/com/grapeup/carddemo/onlinetransactionmanagement/application/PaymentInput.java",
+      "to": "src/main/java/com/grapeup/carddemo/onlinetransactionmanagement/application/PaymentInput.java"
+    },
+    {
+      "from": "src/main/java/com/grapeup/carddemo/onlinetransactionmanagement/application/PaymentResult.java",
+      "to": "src/main/java/com/grapeup/carddemo/onlinetransactionmanagement/application/PaymentResult.java"
+    },
+    {
+      "from": "src/main/java/com/grapeup/carddemo/onlinetransactionmanagement/application/AccountRepository.java",
+      "to": "src/main/java/com/grapeup/carddemo/onlinetransactionmanagement/application/AccountRepository.java"
+    },
+    {
+      "from": "src/main/java/com/grapeup/carddemo/onlinetransactionmanagement/application/CardCrossReferenceRepository.java",
+      "to": "src/main/java/com/grapeup/carddemo/onlinetransactionmanagement/application/CardCrossReferenceRepository.java"
+    },
+    {
+      "from": "src/main/java/com/grapeup/carddemo/onlinetransactionmanagement/application/TransactionRepository.java",
+      "to": "src/main/java/com/grapeup/carddemo/onlinetransactionmanagement/application/TransactionRepository.java"
+    },
+    {
+      "from": "src/main/java/com/grapeup/carddemo/onlinetransactionmanagement/application/UnitOfWork.java",
+      "to": "src/main/java/com/grapeup/carddemo/onlinetransactionmanagement/application/UnitOfWork.java"
+    },
+    {
+      "from": "src/main/java/com/grapeup/carddemo/onlinetransactionmanagement/application/TransactionUseCase.java",
+      "to": "src/main/java/com/grapeup/carddemo/onlinetransactionmanagement/application/TransactionUseCase.java"
+    }
+  ],
+  "error_codes": [
+    "ACCOUNT_ID_MISSING",
+    "ACCOUNT_NOT_FOUND",
+    "ACCOUNT_NOT_ACTIVE",
+    "NOTHING_TO_PAY",
+    "PAYMENT_NOT_CONFIRMED",
+    "INVALID_AMOUNT_FORMAT",
+    "CARD_NOT_FOUND"
+  ],
+  "interfaces": [
+    "AccountRepository",
+    "CardCrossReferenceRepository",
+    "TransactionRepository",
+    "TransactionUseCase",
+    "UnitOfWork"
+  ],
+  "reviewed_types": [
+    "Account",
+    "CardCrossReference",
+    "Merchant",
+    "Transaction"
+  ]
+}
