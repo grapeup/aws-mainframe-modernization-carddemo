@@ -1,0 +1,620 @@
+{
+  "feature": "Online Transaction Management",
+  "excluded": [
+    {
+      "copybook": "COCOM01Y",
+      "reason": "CICS COMMAREA - transient screen/program state transfer structure, not persisted business data"
+    },
+    {
+      "copybook": "COTTL01Y",
+      "reason": "Screen title constants - UI presentation text, not persisted business data"
+    },
+    {
+      "copybook": "CSDAT01Y",
+      "reason": "Working-storage date/time scratch area (WS- prefix) - runtime formatting fields, not persisted business data"
+    },
+    {
+      "copybook": "CSMSG01Y",
+      "reason": "Common message text constants - UI error/info messages, not persisted business data"
+    },
+    {
+      "copybook": "COCOM01Y.CDEMO-USRTYP-*",
+      "reason": "UserType enum (ADMIN/USER) belongs to authentication/session context, not to this feature's persistent domain. Noted for the authentication feature."
+    },
+    {
+      "copybook": "COCOM01Y.CDEMO-PGM-*",
+      "reason": "ProgramContext enum (ENTER/REENTER) is CICS screen-flow control, not a business concept."
+    },
+    {
+      "copybook": "CCDA-SCREEN-TITLE.CCDA-THANK-YOU",
+      "reason": "Dead field - never referenced outside copybook"
+    },
+    {
+      "copybook": "CSDAT01Y.WS-CURTIME-MILSEC",
+      "reason": "Dead field - never referenced outside copybook"
+    },
+    {
+      "copybook": "CSDAT01Y.WS-CURTIME-N",
+      "reason": "Dead field - never referenced outside copybook"
+    },
+    {
+      "copybook": "CSDAT01Y.WS-TIMESTAMP-TM-HH",
+      "reason": "Dead field - never referenced outside copybook"
+    },
+    {
+      "copybook": "CSDAT01Y.WS-TIMESTAMP-TM-MM",
+      "reason": "Dead field - never referenced outside copybook"
+    },
+    {
+      "copybook": "CSDAT01Y.WS-TIMESTAMP-TM-SS",
+      "reason": "Dead field - never referenced outside copybook"
+    }
+  ],
+  "entities": [
+    {
+      "copybook": "CVACT01Y",
+      "entity": "Account",
+      "table": "accounts",
+      "summary": "A customer credit-card account with balance, credit limits, and cycle-to-date totals",
+      "key": {
+        "property": "id",
+        "column": "id",
+        "from": "ACCT-ID",
+        "java": "Long",
+        "pg": "bigint",
+        "note": "PIC 9(11) - numeric account identifier, fits in bigint"
+      },
+      "properties": [
+        {
+          "property": "activeStatus",
+          "column": "active_status",
+          "from": "ACCT-ACTIVE-STATUS",
+          "java": "String",
+          "pg": "varchar(1)",
+          "note": "Single-character status flag checked in business rules (e.g. 'Y' = active)"
+        },
+        {
+          "property": "currentBalance",
+          "column": "current_balance",
+          "from": "ACCT-CURR-BAL",
+          "java": "BigDecimal",
+          "pg": "numeric(12,2)",
+          "note": "Money - BigDecimal, never double. Checked for positive balance before payment."
+        },
+        {
+          "property": "creditLimit",
+          "column": "credit_limit",
+          "from": "ACCT-CREDIT-LIMIT",
+          "java": "BigDecimal",
+          "pg": "numeric(12,2)",
+          "note": "Money - BigDecimal, never double"
+        },
+        {
+          "property": "cashCreditLimit",
+          "column": "cash_credit_limit",
+          "from": "ACCT-CASH-CREDIT-LIMIT",
+          "java": "BigDecimal",
+          "pg": "numeric(12,2)",
+          "note": "Money - BigDecimal, never double"
+        },
+        {
+          "property": "openDate",
+          "column": "open_date",
+          "from": "ACCT-OPEN-DATE",
+          "java": "LocalDate",
+          "pg": "date",
+          "note": "Proven date field, format yyyy-MM-dd"
+        },
+        {
+          "property": "expirationDate",
+          "column": "expiration_date",
+          "from": "ACCT-EXPIRAION-DATE",
+          "java": "LocalDate",
+          "pg": "date",
+          "note": "Proven date field, format yyyy-MM-dd. Legacy field name has typo (EXPIRAION); Java name corrected."
+        },
+        {
+          "property": "reissueDate",
+          "column": "reissue_date",
+          "from": "ACCT-REISSUE-DATE",
+          "java": "LocalDate",
+          "pg": "date",
+          "nullable": true,
+          "note": "Proven date field, format yyyy-MM-dd. Nullable because not all accounts have been reissued."
+        },
+        {
+          "property": "currentCycleCredit",
+          "column": "current_cycle_credit",
+          "from": "ACCT-CURR-CYC-CREDIT",
+          "java": "BigDecimal",
+          "pg": "numeric(12,2)",
+          "note": "Money - BigDecimal. Updated when credit transactions are added."
+        },
+        {
+          "property": "currentCycleDebit",
+          "column": "current_cycle_debit",
+          "from": "ACCT-CURR-CYC-DEBIT",
+          "java": "BigDecimal",
+          "pg": "numeric(12,2)",
+          "note": "Money - BigDecimal. Updated when debit transactions are added."
+        },
+        {
+          "property": "addressZip",
+          "column": "address_zip",
+          "from": "ACCT-ADDR-ZIP",
+          "java": "String",
+          "pg": "varchar(10)",
+          "note": "ZIP/postal code - kept as String to preserve leading zeros"
+        },
+        {
+          "property": "groupId",
+          "column": "group_id",
+          "from": "ACCT-GROUP-ID",
+          "java": "String",
+          "pg": "varchar(10)",
+          "note": "Account grouping identifier"
+        }
+      ],
+      "owned": [],
+      "enums": [],
+      "relationships": [],
+      "notes": "currentBalance, currentCycleCredit, and currentCycleDebit share a 'curr' prefix in COBOL but are NOT grouped into an embeddable. currentBalance is a top-level account attribute while the cycle totals are period accumulators \u2014 they do not form a single coherent concept worth extracting.",
+      "_rels": [],
+      "_members": [
+        {
+          "field": "id",
+          "type": "Long",
+          "column": "id",
+          "docs": "PIC 9(11) - numeric account identifier, fits in bigint",
+          "key": true,
+          "embedded": false,
+          "enum": false,
+          "pg": "bigint"
+        },
+        {
+          "field": "activeStatus",
+          "type": "String",
+          "column": "active_status",
+          "docs": "Single-character status flag checked in business rules (e.g. 'Y' = active)",
+          "key": false,
+          "embedded": false,
+          "enum": false,
+          "pg": "varchar(1)"
+        },
+        {
+          "field": "currentBalance",
+          "type": "BigDecimal",
+          "column": "current_balance",
+          "docs": "Money - BigDecimal, never double. Checked for positive balance before payment.",
+          "key": false,
+          "embedded": false,
+          "enum": false,
+          "pg": "numeric(12,2)"
+        },
+        {
+          "field": "creditLimit",
+          "type": "BigDecimal",
+          "column": "credit_limit",
+          "docs": "Money - BigDecimal, never double",
+          "key": false,
+          "embedded": false,
+          "enum": false,
+          "pg": "numeric(12,2)"
+        },
+        {
+          "field": "cashCreditLimit",
+          "type": "BigDecimal",
+          "column": "cash_credit_limit",
+          "docs": "Money - BigDecimal, never double",
+          "key": false,
+          "embedded": false,
+          "enum": false,
+          "pg": "numeric(12,2)"
+        },
+        {
+          "field": "openDate",
+          "type": "LocalDate",
+          "column": "open_date",
+          "docs": "Proven date field, format yyyy-MM-dd",
+          "key": false,
+          "embedded": false,
+          "enum": false,
+          "pg": "date"
+        },
+        {
+          "field": "expirationDate",
+          "type": "LocalDate",
+          "column": "expiration_date",
+          "docs": "Proven date field, format yyyy-MM-dd. Legacy field name has typo (EXPIRAION); Java name corrected.",
+          "key": false,
+          "embedded": false,
+          "enum": false,
+          "pg": "date"
+        },
+        {
+          "field": "reissueDate",
+          "type": "LocalDate",
+          "column": "reissue_date",
+          "docs": "Proven date field, format yyyy-MM-dd. Nullable because not all accounts have been reissued.",
+          "key": false,
+          "embedded": false,
+          "enum": false,
+          "pg": "date"
+        },
+        {
+          "field": "currentCycleCredit",
+          "type": "BigDecimal",
+          "column": "current_cycle_credit",
+          "docs": "Money - BigDecimal. Updated when credit transactions are added.",
+          "key": false,
+          "embedded": false,
+          "enum": false,
+          "pg": "numeric(12,2)"
+        },
+        {
+          "field": "currentCycleDebit",
+          "type": "BigDecimal",
+          "column": "current_cycle_debit",
+          "docs": "Money - BigDecimal. Updated when debit transactions are added.",
+          "key": false,
+          "embedded": false,
+          "enum": false,
+          "pg": "numeric(12,2)"
+        },
+        {
+          "field": "addressZip",
+          "type": "String",
+          "column": "address_zip",
+          "docs": "ZIP/postal code - kept as String to preserve leading zeros",
+          "key": false,
+          "embedded": false,
+          "enum": false,
+          "pg": "varchar(10)"
+        },
+        {
+          "field": "groupId",
+          "type": "String",
+          "column": "group_id",
+          "docs": "Account grouping identifier",
+          "key": false,
+          "embedded": false,
+          "enum": false,
+          "pg": "varchar(10)"
+        }
+      ]
+    },
+    {
+      "copybook": "CVACT03Y",
+      "entity": "CardCrossReference",
+      "table": "card_cross_references",
+      "summary": "Links a card number to its owning account and customer, enabling card-to-account lookup",
+      "key": {
+        "property": "cardNumber",
+        "column": "card_number",
+        "from": "XREF-CARD-NUM",
+        "java": "String",
+        "pg": "varchar(16)",
+        "note": "PIC X(16) - card number is the natural key for this cross-reference"
+      },
+      "properties": [
+        {
+          "property": "customerId",
+          "column": "customer_id",
+          "from": "XREF-CUST-ID",
+          "java": "Integer",
+          "pg": "integer",
+          "note": "PIC 9(09) - references a customer record (customer entity is outside this feature scope)"
+        }
+      ],
+      "owned": [],
+      "enums": [],
+      "relationships": [
+        {
+          "property": "accountId",
+          "column": "account_id",
+          "references": "accounts.id",
+          "java": "Long",
+          "from": "XREF-ACCT-ID",
+          "rationale": "Each card is issued against exactly one account. The cross-reference table owns this FK because it is the many side (multiple cards per account). Proven FK from XREF-ACCT-ID -> ACCOUNT-RECORD.ACCT-ID.",
+          "pg": "bigint"
+        }
+      ],
+      "_rels": [
+        {
+          "property": "accountId",
+          "column": "account_id",
+          "references": "accounts.id",
+          "java": "Long",
+          "from": "XREF-ACCT-ID",
+          "rationale": "Each card is issued against exactly one account. The cross-reference table owns this FK because it is the many side (multiple cards per account). Proven FK from XREF-ACCT-ID -> ACCOUNT-RECORD.ACCT-ID.",
+          "pg": "bigint"
+        }
+      ],
+      "_members": [
+        {
+          "field": "cardNumber",
+          "type": "String",
+          "column": "card_number",
+          "docs": "PIC X(16) - card number is the natural key for this cross-reference",
+          "key": true,
+          "embedded": false,
+          "enum": false,
+          "pg": "varchar(16)"
+        },
+        {
+          "field": "customerId",
+          "type": "Integer",
+          "column": "customer_id",
+          "docs": "PIC 9(09) - references a customer record (customer entity is outside this feature scope)",
+          "key": false,
+          "embedded": false,
+          "enum": false,
+          "pg": "integer"
+        },
+        {
+          "field": "accountId",
+          "type": "Long",
+          "column": "account_id",
+          "docs": "Each card is issued against exactly one account. The cross-reference table owns this FK because it is the many side (multiple cards per account). Proven FK from XREF-ACCT-ID -> ACCOUNT-RECORD.ACCT-ID.",
+          "key": false,
+          "embedded": false,
+          "enum": false,
+          "pg": "bigint"
+        }
+      ]
+    },
+    {
+      "copybook": "CVTRA05Y",
+      "entity": "Transaction",
+      "table": "transactions",
+      "summary": "A financial transaction (payment, purchase, etc.) against a card, with merchant details and timestamps",
+      "key": {
+        "property": "id",
+        "column": "id",
+        "from": "TRAN-ID",
+        "java": "String",
+        "pg": "varchar(16)",
+        "note": "PIC X(16) - generated by incrementing the last transaction ID. Kept as String because the legacy system treats it as a character field."
+      },
+      "properties": [
+        {
+          "property": "typeCode",
+          "column": "type_code",
+          "from": "TRAN-TYPE-CD",
+          "java": "String",
+          "pg": "varchar(2)",
+          "note": "Two-character code (e.g. '02' for payment). String because leading zero is significant."
+        },
+        {
+          "property": "categoryCode",
+          "column": "category_code",
+          "from": "TRAN-CAT-CD",
+          "java": "Short",
+          "pg": "smallint",
+          "note": "Numeric category (e.g. 2 for bill payment). PIC 9(04) - genuinely numeric, no leading-zero significance in acceptance criteria."
+        },
+        {
+          "property": "source",
+          "column": "source",
+          "from": "TRAN-SOURCE",
+          "java": "String",
+          "pg": "varchar(10)",
+          "note": "Origin channel, e.g. 'POS TERM'"
+        },
+        {
+          "property": "description",
+          "column": "description",
+          "from": "TRAN-DESC",
+          "java": "String",
+          "pg": "varchar(100)",
+          "note": "Human-readable description, e.g. 'BILL PAYMENT - ONLINE'"
+        },
+        {
+          "property": "amount",
+          "column": "amount",
+          "from": "TRAN-AMT",
+          "java": "BigDecimal",
+          "pg": "numeric(11,2)",
+          "note": "Money - BigDecimal, never double. For bill payment this equals the account's current balance."
+        },
+        {
+          "property": "originatedAt",
+          "column": "originated_at",
+          "from": "TRAN-ORIG-TS",
+          "java": "OffsetDateTime",
+          "pg": "timestamptz",
+          "nullable": true,
+          "note": "Proven timestamp field. When the transaction was initiated."
+        },
+        {
+          "property": "processedAt",
+          "column": "processed_at",
+          "from": "TRAN-PROC-TS",
+          "java": "OffsetDateTime",
+          "pg": "timestamptz",
+          "nullable": true,
+          "note": "Proven timestamp field. When the transaction was processed/settled."
+        }
+      ],
+      "owned": [
+        {
+          "property": "merchant",
+          "type": "Merchant",
+          "from_prefix": "TRAN-MERCHANT",
+          "rationale": "Merchant ID, name, city, and ZIP are a coherent real-world concept (the merchant where the transaction occurred). They are always used together and map naturally to a value object. Embedded, not a separate table, because there is no independent merchant lifecycle in the legacy system.",
+          "properties": [
+            {
+              "property": "id",
+              "column": "merchant_id",
+              "from": "TRAN-MERCHANT-ID",
+              "java": "Integer",
+              "pg": "integer",
+              "nullable": true,
+              "note": "Merchant identifier. Nullable for transactions like online bill payments that have no physical merchant."
+            },
+            {
+              "property": "name",
+              "column": "merchant_name",
+              "from": "TRAN-MERCHANT-NAME",
+              "java": "String",
+              "pg": "varchar(50)",
+              "nullable": true
+            },
+            {
+              "property": "city",
+              "column": "merchant_city",
+              "from": "TRAN-MERCHANT-CITY",
+              "java": "String",
+              "pg": "varchar(50)",
+              "nullable": true
+            },
+            {
+              "property": "zip",
+              "column": "merchant_zip",
+              "from": "TRAN-MERCHANT-ZIP",
+              "java": "String",
+              "pg": "varchar(10)",
+              "nullable": true,
+              "note": "ZIP/postal code - String to preserve leading zeros"
+            }
+          ]
+        }
+      ],
+      "enums": [],
+      "relationships": [
+        {
+          "property": "cardNumber",
+          "column": "card_number",
+          "references": "card_cross_references.card_number",
+          "java": "String",
+          "from": "TRAN-CARD-NUM",
+          "rationale": "Each transaction is charged to a specific card. The proven FK is TRAN-CARD-NUM -> XREF-CARD-NUM. Account is reached via the multi-hop route through card_cross_references, NOT by a direct FK.",
+          "pg": "varchar(16)"
+        }
+      ],
+      "_rels": [
+        {
+          "property": "cardNumber",
+          "column": "card_number",
+          "references": "card_cross_references.card_number",
+          "java": "String",
+          "from": "TRAN-CARD-NUM",
+          "rationale": "Each transaction is charged to a specific card. The proven FK is TRAN-CARD-NUM -> XREF-CARD-NUM. Account is reached via the multi-hop route through card_cross_references, NOT by a direct FK.",
+          "pg": "varchar(16)"
+        }
+      ],
+      "_members": [
+        {
+          "field": "id",
+          "type": "String",
+          "column": "id",
+          "docs": "PIC X(16) - generated by incrementing the last transaction ID. Kept as String because the legacy system treats it as a character field.",
+          "key": true,
+          "embedded": false,
+          "enum": false,
+          "pg": "varchar(16)"
+        },
+        {
+          "field": "typeCode",
+          "type": "String",
+          "column": "type_code",
+          "docs": "Two-character code (e.g. '02' for payment). String because leading zero is significant.",
+          "key": false,
+          "embedded": false,
+          "enum": false,
+          "pg": "varchar(2)"
+        },
+        {
+          "field": "categoryCode",
+          "type": "Short",
+          "column": "category_code",
+          "docs": "Numeric category (e.g. 2 for bill payment). PIC 9(04) - genuinely numeric, no leading-zero significance in acceptance criteria.",
+          "key": false,
+          "embedded": false,
+          "enum": false,
+          "pg": "smallint"
+        },
+        {
+          "field": "source",
+          "type": "String",
+          "column": "source",
+          "docs": "Origin channel, e.g. 'POS TERM'",
+          "key": false,
+          "embedded": false,
+          "enum": false,
+          "pg": "varchar(10)"
+        },
+        {
+          "field": "description",
+          "type": "String",
+          "column": "description",
+          "docs": "Human-readable description, e.g. 'BILL PAYMENT - ONLINE'",
+          "key": false,
+          "embedded": false,
+          "enum": false,
+          "pg": "varchar(100)"
+        },
+        {
+          "field": "amount",
+          "type": "BigDecimal",
+          "column": "amount",
+          "docs": "Money - BigDecimal, never double. For bill payment this equals the account's current balance.",
+          "key": false,
+          "embedded": false,
+          "enum": false,
+          "pg": "numeric(11,2)"
+        },
+        {
+          "field": "originatedAt",
+          "type": "OffsetDateTime",
+          "column": "originated_at",
+          "docs": "Proven timestamp field. When the transaction was initiated.",
+          "key": false,
+          "embedded": false,
+          "enum": false,
+          "pg": "timestamptz"
+        },
+        {
+          "field": "processedAt",
+          "type": "OffsetDateTime",
+          "column": "processed_at",
+          "docs": "Proven timestamp field. When the transaction was processed/settled.",
+          "key": false,
+          "embedded": false,
+          "enum": false,
+          "pg": "timestamptz"
+        },
+        {
+          "field": "cardNumber",
+          "type": "String",
+          "column": "card_number",
+          "docs": "Each transaction is charged to a specific card. The proven FK is TRAN-CARD-NUM -> XREF-CARD-NUM. Account is reached via the multi-hop route through card_cross_references, NOT by a direct FK.",
+          "key": false,
+          "embedded": false,
+          "enum": false,
+          "pg": "varchar(16)"
+        },
+        {
+          "field": "merchant",
+          "type": "Merchant",
+          "column": null,
+          "docs": "Merchant ID, name, city, and ZIP are a coherent real-world concept (the merchant where the transaction occurred). They are always used together and map naturally to a value object. Embedded, not a separate table, because there is no independent merchant lifecycle in the legacy system.",
+          "key": false,
+          "embedded": true,
+          "enum": false,
+          "pg": null
+        }
+      ]
+    }
+  ],
+  "open_questions": [
+    "Transaction ID generation: the legacy system increments the last transaction ID (character field). Need to decide whether to use a database sequence, a service-layer approach that reads MAX(id) and increments, or retain the legacy string-increment logic. A sequence is safest for concurrency but changes the ID format.",
+    "TRAN-TYPE-CD '02' and TRAN-CAT-CD 2 are hardcoded for bill payment. Are there other type/category codes in the broader system that should be modelled as enums? The legacy code for this feature only reveals '02'/2. Deferring enum creation until the full set of codes is known avoids an incomplete enum that blocks other features.",
+    "ACCT-ACTIVE-STATUS: the acceptance criteria check 'account is not active' but do not specify the exact character values. Is 'Y' = active the only valid value, or are there other statuses (e.g. 'C' for closed, 'S' for suspended)? Need the full value set before creating an enum.",
+    "The 'curr' prefix group on Account (currentBalance, currentCycleCredit, currentCycleDebit) was deliberately NOT extracted into an embeddable. currentBalance is a fundamentally different concept (point-in-time balance) from the cycle accumulators. Reviewer should confirm this decision.",
+    "Merchant embeddable fields are marked nullable because online bill payments (the primary flow in this feature) set source='POS TERM' but may not have a real merchant. The add-transaction flow does accept merchant fields. Confirm that merchant fields are indeed optional for payment transactions.",
+    "XREF-CUST-ID references a customer record that is outside this feature's scope. Modelled as a bare Long foreign key column. The Customer entity will be defined by whichever feature owns customer management.",
+    "Column sizes (e.g. varchar(50) for merchant_name, varchar(100) for description) are reasonable defaults from typical COBOL PIC X lengths but the exact PIC sizes for TRAN-DESC, TRAN-MERCHANT-NAME, TRAN-MERCHANT-CITY, TRAN-SOURCE were not provided in the deterministic facts. These should be verified against the actual copybook PIC clauses.",
+    "The acceptance criteria say balance is 'reduced to zero' on bill payment. This implies the payment amount equals the full current balance (no partial payments). Should the domain model or service layer enforce this constraint, or is partial payment a future requirement?"
+  ]
+}
