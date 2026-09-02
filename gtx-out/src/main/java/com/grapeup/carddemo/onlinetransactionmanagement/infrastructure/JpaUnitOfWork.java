@@ -32,7 +32,9 @@ public class JpaUnitOfWork implements UnitOfWork {
                 em.joinTransaction();
             }
         }
-        // Set READ COMMITTED isolation — row locks (FOR UPDATE) handle serialisation.
+        // READ COMMITTED is enough: id generation is serialised by the advisory
+        // lock JpaTransactionRepository takes, which is held until this
+        // transaction ends. SERIALIZABLE would add 40001 failures for no gain.
         em.createNativeQuery("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
                 .executeUpdate();
     }

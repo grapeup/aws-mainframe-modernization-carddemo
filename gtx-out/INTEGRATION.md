@@ -37,14 +37,16 @@ not by deletion:
 
 Each test uses unique account IDs, card numbers, and transaction IDs from non-overlapping ranges (e.g., 90000001-90000002 for AccountRepositoryIT, 80000001-80000002 for CardCrossReferenceRepositoryIT, 70000001-70000003 for TransactionRepositoryIT, 60000001-60000002 for UnitOfWorkIT, 75000001-75000002 for TimestampConverterIT, 50000000-50000004 for ConcurrentIdGenerationIT). Tests using @Transactional get automatic rollback. Tests using EntityManagerFactory directly (UnitOfWorkIT, ConcurrentIdGenerationIT) clean up in finally blocks, deleting children before parents.
 
-Isolation level: READ COMMITTED. Row-level locking via SELECT ... FOR UPDATE on the highest transaction ID row serialises concurrent ID generation. No SERIALIZABLE needed, so no 40001 serialization failures. The concurrent test retries up to 3 times on any contention error.
+Isolation level: READ COMMITTED. ID generation is serialised by a transaction-scoped advisory lock (pg_advisory_xact_lock) taken before the maximum is read, so no SERIALIZABLE and no 40001 serialization failures. The concurrent test retries up to 3 times on any contention error.
+
+**Corrected by hand after this stage ran.** The generated code locked the row holding the current maximum instead — `ORDER BY id DESC LIMIT 1 FOR UPDATE` — which looks equivalent and is not: that row is chosen from the transaction's original snapshot, and when the statement blocks behind another writer PostgreSQL rechecks the locked row without re-running the ORDER BY, so it returns the STALE maximum. The caller then computes the same next id. Paired with a `find`-then-`merge` save, the duplicate did not fail — it silently overwrote the existing transaction, and five concurrent callers left two rows. `save()` now inserts, so a duplicate id is loud rather than lossy.
 
 ## Guarantees and how each is proven
 
 | Requirement | Mechanism | Proving test |
 |---|---|---|
 | UnitOfWork.begin() must open a database transaction at SERIALIZABLE or REPEATABLE READ isolation level so that | JpaUnitOfWork.begin() opens a resource-local transaction via EntityManager.getTransaction().begin() and sets R | `ConcurrentIdGenerationIT.concurrentInserts_produceUniqueIds` |
-| TransactionRepository.findMaxTransactionId() should use SELECT MAX(id) FROM transactions FOR UPDATE (or equiva | JpaTransactionRepository.findMaxTransactionId() uses native query 'SELECT id FROM transactions ORDER BY id DES | `TransactionRepositoryIT.findMaxTransactionId_returnsHighestId` |
+| TransactionRepository.findMaxTransactionId() should use SELECT MAX(id) FROM transactions FOR UPDATE (or equiva | JpaTransactionRepository.findMaxTransactionId() takes pg_advisory_xact_lock, then reads the maximum (hand-corr | `TransactionRepositoryIT.findMaxTransactionId_returnsHighestId` |
 | AccountRepository.save() and TransactionRepository.save() must stage their writes within the same database tra | Both JpaAccountRepository and JpaTransactionRepository use the same EntityManager instance injected by the con | `UnitOfWorkIT.commit_makesBothWritesDurable` |
 | UnitOfWork.rollback() must discard all staged writes from both repositories, ensuring no partial state is pers | JpaUnitOfWork.rollback() calls EntityManager.getTransaction().rollback(), discarding all unflushed and flushed | `UnitOfWorkIT.rollback_discardsAllStagedWrites` |
 | The transaction ID column is a 16-character zero-padded numeric string. The integration layer must ensure the  | The schema declares 'id varchar(16) NOT NULL' and the domain entity maps it as '@Column(name = "id", length =  | no test possible — This is a schema/mapping constraint already enforced by the reviewed domain model and migr |
